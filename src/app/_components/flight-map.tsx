@@ -60,7 +60,7 @@ function findNearestAirport(lat: number, lon: number): Airport {
 }
 
 // Extract airline code from callsign (usually first 3 letters)
-function getAirlineCode(callsign: string | null): string | null {
+function getAirlineCode(callsign: string | null): string | null | undefined {
   if (!callsign) return null;
   const match = callsign.match(/^([A-Z]{3})/);
   return match ? match[1] : null;
@@ -152,6 +152,28 @@ const createAirplaneIcon = (rotation: number, color: string) => {
       </div>
     `,
     className: "airplane-icon",
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+};
+
+// Custom ship icon (top-down hull view)
+const createShipIcon = (rotation: number, color: string) => {
+  return L.divIcon({
+    html: `
+      <div style="transform: rotate(${rotation}deg); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 28px;">
+          <!-- Hull shape (top-down view) -->
+          <path d="M16 4 L20 10 L22 16 L22 22 L20 26 L16 28 L12 26 L10 22 L10 16 L12 10 Z"
+                fill="${color}"
+                stroke="#1e3a8a"
+                stroke-width="1.5"/>
+          <!-- Bow indicator (red dot at front) -->
+          <circle cx="16" cy="4" r="2.5" fill="#ef4444"/>
+        </svg>
+      </div>
+    `,
+    className: "ship-icon",
     iconSize: [32, 32],
     iconAnchor: [16, 16],
   });
@@ -396,7 +418,7 @@ function LocationControl() {
   );
 }
 
-function FlightMarkers({ bounds }: { bounds: { lamin: number; lomin: number; lamax: number; lomax: number } }) {
+function FlightMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: number; lamax: number; lomax: number }; enabled: boolean }) {
   const { data: civilianFlights, refetch: refetchCivilian } = api.flights.getFlights.useQuery(bounds, {
     refetchInterval: 60000, // Refetch every 1 minute
   });
@@ -412,6 +434,9 @@ function FlightMarkers({ bounds }: { bounds: { lamin: number; lomin: number; lam
     }, 60000);
     return () => clearInterval(interval);
   }, [refetchCivilian, refetchMilitary]);
+
+  // Don't render markers if not enabled
+  if (!enabled) return null;
 
   // Combine and deduplicate flights
   // Prefer military data from ADSB.lol over OpenSky data for the same aircraft
@@ -493,8 +518,82 @@ function FlightMarkers({ bounds }: { bounds: { lamin: number; lomin: number; lam
   );
 }
 
+function ShipMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: number; lamax: number; lomax: number }; enabled: boolean }) {
+  const { data: ships } = api.ships.getShips.useQuery(bounds, {
+    refetchInterval: 60000, // Refetch every 1 minute
+  });
+
+  // Don't render markers if not enabled
+  if (!enabled) return null;
+
+  if (!ships || ships.length === 0) return null;
+
+  // Format ETA string
+  const formatETA = (eta: string | null) => {
+    if (!eta) return null;
+    try {
+      // If it's already a string, return it
+      if (typeof eta === 'string') return eta;
+      // If it's an object with Day, Hour, Minute, Month properties
+      const etaObj = eta as unknown as { Day?: number; Hour?: number; Minute?: number; Month?: number };
+      if (etaObj.Month && etaObj.Day && etaObj.Hour !== undefined && etaObj.Minute !== undefined) {
+        return `${etaObj.Month}/${etaObj.Day} ${String(etaObj.Hour).padStart(2, '0')}:${String(etaObj.Minute).padStart(2, '0')}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  return (
+    <>
+      {ships.map((ship) => {
+        const position: LatLngExpression = [ship.latitude, ship.longitude];
+        const rotation = ship.cog ?? ship.heading ?? 0;
+        const color = "#1e40af"; // Blue color for ships
+        const formattedETA = formatETA(ship.eta);
+
+        return (
+          <Marker
+            key={ship.mmsi}
+            position={position}
+            icon={createShipIcon(rotation, color)}
+          >
+            <Popup>
+              <div className="text-sm">
+                <p className="font-bold">
+                  {ship.shipName || `MMSI: ${ship.mmsi}`}
+                </p>
+                <p className="text-xs font-semibold text-blue-600">
+                  🚢 VESSEL
+                </p>
+                <p>MMSI: {ship.mmsi}</p>
+                {ship.destination && (
+                  <p>Destination: {ship.destination}</p>
+                )}
+                {ship.sog !== null && (
+                  <p>Speed: {ship.sog.toFixed(1)} knots</p>
+                )}
+                {ship.cog !== null && (
+                  <p>Course: {ship.cog.toFixed(0)}°</p>
+                )}
+                {ship.heading !== null && (
+                  <p>Heading: {ship.heading}°</p>
+                )}
+                {formattedETA && (
+                  <p>ETA: {formattedETA}</p>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
+    </>
+  );
+}
+
 // Component to track map bounds and update flight data
-function MapBoundsTracker() {
+function MapBoundsTracker({ viewMode }: { viewMode: "airplanes" | "ships" }) {
   const map = useMap();
   const [bounds, setBounds] = useState({
     lamin: 37.0,
@@ -525,10 +624,10 @@ function MapBoundsTracker() {
         clearTimeout(timeoutId);
       }
 
-      // Set a new timeout to update bounds after 10 seconds
+      // Set a new timeout to update bounds after 30 seconds
       timeoutId = setTimeout(() => {
         updateBounds();
-      }, 10000);
+      }, 30000);
     };
 
     // Set initial bounds immediately
@@ -547,7 +646,70 @@ function MapBoundsTracker() {
     };
   }, [map]);
 
-  return <FlightMarkers bounds={bounds} />;
+  return (
+    <>
+      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} />
+      <ShipMarkers bounds={bounds} enabled={viewMode === "ships"} />
+    </>
+  );
+}
+
+// View mode toggle control
+function ViewModeControl({
+  viewMode,
+  onViewModeChange
+}: {
+  viewMode: "airplanes" | "ships";
+  onViewModeChange: (mode: "airplanes" | "ships") => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "10px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 1000,
+      }}
+    >
+      <div className="leaflet-control leaflet-bar" style={{ background: "white", padding: "4px" }}>
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button
+            onClick={() => onViewModeChange("airplanes")}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              viewMode === "airplanes"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}
+            style={{
+              border: "none",
+              cursor: "pointer",
+              borderRadius: "4px",
+            }}
+            title="Show airplanes"
+          >
+            Flights
+          </button>
+          <button
+            onClick={() => onViewModeChange("ships")}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              viewMode === "ships"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}
+            style={{
+              border: "none",
+              cursor: "pointer",
+              borderRadius: "4px",
+            }}
+            title="Show ships"
+          >
+            Ships
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function FlightMap({
@@ -556,6 +718,7 @@ export function FlightMap({
   className = "h-96 w-full"
 }: FlightMapProps) {
   const [isClient, setIsClient] = useState(false);
+  const [viewMode, setViewMode] = useState<"airplanes" | "ships">("airplanes");
 
   useEffect(() => {
     setIsClient(true);
@@ -569,6 +732,23 @@ export function FlightMap({
         shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       });
     });
+
+    // Suppress AbortError from cancelled requests
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      const message = args[0];
+      if (
+        typeof message === 'string' &&
+        (message.includes('AbortError') || message.includes('aborted a request'))
+      ) {
+        return;
+      }
+      originalError.apply(console, args);
+    };
+
+    return () => {
+      console.error = originalError;
+    };
   }, []);
 
   if (!isClient) {
@@ -590,8 +770,9 @@ export function FlightMap({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
       />
+      <ViewModeControl viewMode={viewMode} onViewModeChange={setViewMode} />
       <LocationControl />
-      <MapBoundsTracker />
+      <MapBoundsTracker viewMode={viewMode} />
     </MapContainer>
   );
 }

@@ -95,6 +95,25 @@ The project includes Leaflet for interactive maps using `react-leaflet` and inte
 - Data refreshes every 60 seconds
 - No authentication required
 
+**AISStream Ship Tracking Integration**:
+- tRPC endpoint: `api.ships.getShips` in `src/server/api/routers/ships.ts`
+- Real-time vessel tracking using AIS (Automatic Identification System) data
+- **WebSocket connection**: Server maintains persistent connection to wss://stream.aisstream.io/v0/stream
+- **Authentication**: Requires API key via `AISSTREAM_API_KEY` environment variable
+  - Get free API key at https://aisstream.io
+  - Ship tracking disabled if no API key provided
+- **Subscription-based**: Automatically subscribes to bounding box matching map viewport
+  - Updates subscription when map bounds change significantly (>0.5 degrees)
+  - Reconnects automatically if connection drops
+- **Ship data includes**:
+  - MMSI (Maritime Mobile Service Identity)
+  - Ship name, type, destination, ETA
+  - Position (latitude/longitude)
+  - Course over ground (COG) and speed over ground (SOG)
+  - True heading
+- **Data caching**: Ship positions cached in memory for 10 minutes
+- Ships displayed with blue ship icons on the map
+
 **Airline Configuration**:
 - Airline names and colors are stored in `src/data/airlines.json`
 - Edit this JSON file to add new airlines or update existing ones
