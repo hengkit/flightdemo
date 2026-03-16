@@ -67,7 +67,7 @@ function getAirlineCode(callsign: string | null): string | null | undefined {
 }
 
 // Get airline name from code
-function getAirlineName(airlineCode: string | null): string | null {
+function getAirlineName(airlineCode: string | null | undefined): string | null {
   if (!airlineCode) return null;
   return AIRLINES[airlineCode]?.name ?? null;
 }
@@ -143,8 +143,6 @@ const createAirplaneIcon = (rotation: number, color: string) => {
           <path d="M5 15 L16 13 L27 15" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           <!-- Tail wings (smaller) -->
           <path d="M11 21 L16 21.5 L21 21" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <!-- Nose cone -->
-          <circle cx="16" cy="3" r="2" fill="#ef4444"/>
           <!-- Wing tips -->
           <circle cx="5" cy="15" r="1.5" fill="${color}"/>
           <circle cx="27" cy="15" r="1.5" fill="${color}"/>
@@ -158,24 +156,22 @@ const createAirplaneIcon = (rotation: number, color: string) => {
 };
 
 // Custom ship icon (top-down hull view)
-const createShipIcon = (rotation: number, color: string) => {
+const createShipIcon = (rotation: number) => {
   return L.divIcon({
     html: `
-      <div style="transform: rotate(${rotation}deg); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
-        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 28px;">
+      <div style="transform: rotate(${rotation}deg); width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 22px; height: 22px;">
           <!-- Hull shape (top-down view) -->
           <path d="M16 4 L20 10 L22 16 L22 22 L20 26 L16 28 L12 26 L10 22 L10 16 L12 10 Z"
-                fill="${color}"
+                fill="#1e40af"
                 stroke="#1e3a8a"
                 stroke-width="1.5"/>
-          <!-- Bow indicator (red dot at front) -->
-          <circle cx="16" cy="4" r="2.5" fill="#ef4444"/>
         </svg>
       </div>
     `,
     className: "ship-icon",
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
   });
 };
 
@@ -187,13 +183,11 @@ function LocationControl() {
   const [nearestAirport, setNearestAirport] = useState<Airport | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState<Airport[]>([]);
-  const [mapCenter, setMapCenter] = useState<{ lat: number; lon: number } | null>(null);
 
   // Track map center changes and find nearest airport for weather
   useEffect(() => {
     const updateCenterAndAirport = () => {
       const center = map.getCenter();
-      setMapCenter({ lat: center.lat, lon: center.lng });
 
       // Find nearest airport to the map center for weather display
       const airport = findNearestAirport(center.lat, center.lng);
@@ -440,7 +434,8 @@ function FlightMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: nu
 
   // Combine and deduplicate flights
   // Prefer military data from ADSB.lol over OpenSky data for the same aircraft
-  const flightMap = new Map<string, typeof civilianFlights extends (infer T)[] ? T : never>();
+  type Flight = NonNullable<typeof civilianFlights>[number];
+  const flightMap = new Map<string, Flight>();
 
   // Add civilian flights first
   (civilianFlights ?? []).forEach((flight) => {
@@ -508,7 +503,6 @@ function FlightMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: nu
                 {flight.baro_altitude !== null && (
                   <p>Altitude: {Math.round(flight.baro_altitude)} m</p>
                 )}
-                <p>On Ground: {flight.on_ground ? "Yes" : "No"}</p>
               </div>
             </Popup>
           </Marker>
@@ -550,14 +544,13 @@ function ShipMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: numb
       {ships.map((ship) => {
         const position: LatLngExpression = [ship.latitude, ship.longitude];
         const rotation = ship.cog ?? ship.heading ?? 0;
-        const color = "#1e40af"; // Blue color for ships
         const formattedETA = formatETA(ship.eta);
 
         return (
           <Marker
             key={ship.mmsi}
             position={position}
-            icon={createShipIcon(rotation, color)}
+            icon={createShipIcon(rotation)}
           >
             <Popup>
               <div className="text-sm">
