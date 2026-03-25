@@ -147,22 +147,22 @@ The project includes Leaflet for interactive maps using `react-leaflet` and inte
   - Calculates distance using Haversine formula
   - Automatically centers map on nearest airport
 - **Weather display**: Shows current weather conditions for the nearest airport
-  - Uses National Weather Service API (weather.gov)
+  - Uses Aviation Weather Center API (aviationweather.gov)
   - Automatically finds the nearest airport to the map center
   - Displays airport code (e.g., "SFO") along with weather data
   - Updates every 5 minutes
-  - Only works for US airports
-  - Shows temperature, conditions, wind speed, and direction
+  - Shows METAR data: temperature (°C), wind speed (knots), wind direction, sky conditions
+  - Displays raw METAR observation for detailed information
   - Automatically updates when map is moved to a new location
 
-**Weather.gov API Integration**:
+**Aviation Weather API Integration**:
 - tRPC endpoint: `api.flights.getWeather` in `src/server/api/routers/flights.ts`
-- Uses coordinates of the nearest airport to the map center
-- Two-step process:
-  1. Calls `/points/{lat},{lon}` to get grid coordinates for the airport
-  2. Fetches forecast from returned grid endpoint
-- Returns null for non-US locations (handled gracefully in UI)
-- Includes User-Agent header as required by weather.gov
+- Uses airport ICAO code to fetch current METAR (Meteorological Aerodrome Report)
+- Fetches from `https://aviationweather.gov/api/data/metar?ids={airportCode}&format=json`
+- Returns current conditions including temperature, wind, visibility, and sky cover
+- Converts wind direction from degrees to compass direction (N, NE, E, etc.)
+- Includes raw METAR string for detailed aviation weather information
+- Returns null if no data available for the airport (handled gracefully in UI)
 
 **Example**:
 ```tsx

@@ -290,86 +290,155 @@ export const flightsRouter = createTRPCRouter({
   getWeather: publicProcedure
     .input(
       z.object({
-        latitude: z.number(),
-        longitude: z.number(),
+        airportCode: z.string(),
       }),
     )
     .query(async ({ input }) => {
-      const { latitude, longitude } = input;
+      const { airportCode } = input;
 
       try {
-        // First, get the grid point data
-        const pointsUrl = `https://api.weather.gov/points/${latitude.toFixed(4)},${longitude.toFixed(4)}`;
-        const pointsResponse = await fetch(pointsUrl, {
+        // Use aviationweather.gov METAR API
+        const url = `https://aviationweather.gov/api/data/metar?ids=${airportCode}&format=json`;
+        const response = await fetch(url, {
           headers: {
             "User-Agent": "FlightTracker (contact@example.com)",
           },
         });
 
-        if (!pointsResponse.ok) {
-          // Weather.gov only works for US locations
-          if (pointsResponse.status === 404) {
+        if (!response.ok) {
+          if (response.status === 404) {
             return null;
           }
-          throw new Error(`Weather.gov points API error: ${pointsResponse.status}`);
+          throw new Error(`Aviation Weather API error: ${response.status}`);
         }
 
-        const pointsData = (await pointsResponse.json()) as {
-          properties: {
-            forecast: string;
-            forecastHourly: string;
-            relativeLocation: {
-              properties: {
-                city: string;
-                state: string;
-              };
-            };
-          };
-        };
+        const data = (await response.json()) as Array<{
+          icaoId: string;
+          receiptTime: string;
+          obsTime: number;
+          reportTime: string;
+          temp: number;
+          dewp: number;
+          wdir: number;
+          wspd: number;
+          wgst?: number;
+          visib: string;
+          altim: number;
+          slp?: number;
+          qcField: number;
+          wxString?: string;
+          presTend?: number;
+          maxT?: number;
+          minT?: number;
+          maxT24?: number;
+          minT24?: number;
+          precip?: number;
+          pcp3hr?: number;
+          pcp6hr?: number;
+          pcp24hr?: number;
+          snow?: number;
+          vertVis?: number;
+          metarType: string;
+          rawOb: string;
+          mostRecent: number;
+          lat: number;
+          lon: number;
+          elev: number;
+          prior: number;
+          name: string;
+          clouds?: Array<{
+            cover: string;
+            base?: number;
+          }>;
+        }>;
 
-        // Get the forecast
-        const forecastResponse = await fetch(pointsData.properties.forecast, {
-          headers: {
-            "User-Agent": "FlightTracker (contact@example.com)",
-          },
-        });
-
-        if (!forecastResponse.ok) {
-          throw new Error(`Weather.gov forecast API error: ${forecastResponse.status}`);
+        if (!data || data.length === 0) {
+          return null;
         }
 
-        const forecastData = (await forecastResponse.json()) as {
-          properties: {
-            periods: Array<{
-              number: number;
-              name: string;
-              temperature: number;
-              temperatureUnit: string;
-              windSpeed: string;
-              windDirection: string;
-              shortForecast: string;
-              detailedForecast: string;
-            }>;
-          };
+        const metar = data[0];
+        if (!metar) {
+          return null;
+        }
+
+        // Convert wind direction to compass direction
+        const getWindDirection = (degrees: number): string => {
+          const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+          const index = Math.round(degrees / 22.5) % 16;
+          return directions[index] ?? "N";
         };
 
-        const currentPeriod = forecastData.properties.periods[0];
-        if (!currentPeriod) {
+        // Get sky condition from clouds
+        const getSkyCondition = (): string => {
+          if (!metar.clouds || metar.clouds.length === 0) {
+            return metar.wxString || "Clear";
+          }
+          const cloudCover = metar.clouds[0]?.cover;
+          if (cloudCover === "SKC" || cloudCover === "CLR") return "Clear";
+          if (cloudCover === "FEW") return "Few Clouds";
+          if (cloudCover === "SCT") return "Scattered Clouds";
+          if (cloudCover === "BKN") return "Broken Clouds";
+          if (cloudCover === "OVC") return "Overcast";
+          return metar.wxString || "Unknown";
+        };
+
+        return {
+          location: metar.name || airportCode,
+          temperature: Math.round(metar.temp),
+          temperatureUnit: "C",
+          windSpeed: `${Math.round(metar.wspd)} kts`,
+          windDirection: getWindDirection(metar.wdir),
+          visibility: metar.visib,
+          shortForecast: getSkyCondition(),
+          detailedForecast: metar.rawOb,
+          periodName: "Current",
+        };
+      } catch (error) {
+        console.error("Error fetching aviation weather data:", error);
+        return null;
+      }
+    }),
+
+  getAircraftDetails: publicProcedure
+    .input(
+      z.object({
+        icao24: z.string(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const { icao24 } = input;
+
+      try {
+        const url = `https://live-flightdemo-api.pantheonsite.io/wp-json/wp/v2/aircraft?slug=${icao24}&_fields=title,acf`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            return null;
+          }
+          throw new Error(`Aircraft API error: ${response.status}`);
+        }
+
+        const data = await response.json() as Array<{
+          title: { rendered: string };
+          acf: Record<string, unknown>;
+        }>;
+
+        if (!data || data.length === 0) {
+          return null;
+        }
+
+        const aircraft = data[0];
+        if (!aircraft) {
           return null;
         }
 
         return {
-          location: `${pointsData.properties.relativeLocation.properties.city}, ${pointsData.properties.relativeLocation.properties.state}`,
-          temperature: currentPeriod.temperature,
-          temperatureUnit: currentPeriod.temperatureUnit,
-          windSpeed: currentPeriod.windSpeed,
-          windDirection: currentPeriod.windDirection,
-          shortForecast: currentPeriod.shortForecast,
-          detailedForecast: currentPeriod.detailedForecast,
-          periodName: currentPeriod.name,
+          title: aircraft.title.rendered,
+          acf: aircraft.acf,
         };
       } catch (error) {
-        console.error("Error fetching weather data:", error);
+        console.error("Error fetching aircraft details:", error);
         return null;
       }
     }),

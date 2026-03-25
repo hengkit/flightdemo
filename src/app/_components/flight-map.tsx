@@ -180,9 +180,9 @@ function LocationControl() {
   const map = useMap();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nearestAirport, setNearestAirport] = useState<Airport | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState<Airport[]>([]);
+  const [weatherTab, setWeatherTab] = useState<"formatted" | "raw">("formatted");
 
   // Track map center changes and find nearest airport for weather
   useEffect(() => {
@@ -221,7 +221,6 @@ function LocationControl() {
       (position) => {
         const { latitude, longitude } = position.coords;
         const airport = findNearestAirport(latitude, longitude);
-        setNearestAirport(airport);
 
         // Center map on the airport
         map.setView([airport.lat, airport.lon], 10, {
@@ -260,7 +259,6 @@ function LocationControl() {
   };
 
   const handleSelectAirport = (airport: Airport) => {
-    setNearestAirport(airport);
     setSearchInput("");
     setSearchResults([]);
     setError(null);
@@ -272,11 +270,22 @@ function LocationControl() {
     });
   };
 
+  // Convert IATA to ICAO code (for US airports, prepend 'K')
+  const getICAOCode = (airport: Airport | null): string => {
+    if (!airport) return "";
+    // For US airports, ICAO code is typically 'K' + IATA code
+    if (airport.country === "USA") {
+      return `K${airport.code}`;
+    }
+    // For other countries, we'd need a mapping table
+    // For now, just return the code as-is
+    return airport.code;
+  };
+
   // Fetch weather data for nearest airport
   const { data: weather } = api.flights.getWeather.useQuery(
     {
-      latitude: nearestAirportForWeather?.lat ?? 0,
-      longitude: nearestAirportForWeather?.lon ?? 0,
+      airportCode: getICAOCode(nearestAirportForWeather),
     },
     {
       enabled: nearestAirportForWeather !== null,
@@ -344,18 +353,6 @@ function LocationControl() {
         </button>
       </div>
 
-      {/* Selected Airport Info */}
-      {nearestAirport && (
-        <div
-          className="leaflet-control leaflet-bar mt-2"
-          style={{ background: "white", padding: "8px 12px", maxWidth: "250px" }}
-        >
-          <p className="text-xs font-semibold">{nearestAirport.code}</p>
-          <p className="text-xs text-gray-600">{nearestAirport.name}</p>
-          <p className="text-xs text-gray-500">{nearestAirport.city}, {nearestAirport.country}</p>
-        </div>
-      )}
-
       {/* Error Message */}
       {error && (
         <div
@@ -370,42 +367,147 @@ function LocationControl() {
       {weather && nearestAirportForWeather && (
         <div
           className="leaflet-control leaflet-bar mt-2"
-          style={{ background: "white", padding: "8px 12px", maxWidth: "250px" }}
+          style={{ background: "white", padding: "0", maxWidth: "250px" }}
         >
-          <div className="flex items-start gap-2">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="mt-0.5 flex-shrink-0"
+          {/* Tabs */}
+          <div style={{ display: "flex", borderBottom: "1px solid #e5e7eb" }}>
+            <button
+              onClick={() => setWeatherTab("formatted")}
+              className={`flex-1 px-3 py-2 text-xs font-medium ${
+                weatherTab === "formatted"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              style={{ border: "none", cursor: "pointer", background: "transparent" }}
             >
-              <path d="M12 2v2" />
-              <path d="M12 20v2" />
-              <path d="m4.93 4.93 1.41 1.41" />
-              <path d="m17.66 17.66 1.41 1.41" />
-              <path d="M2 12h2" />
-              <path d="M20 12h2" />
-              <path d="m6.34 17.66-1.41 1.41" />
-              <path d="m19.07 4.93-1.41 1.41" />
-            </svg>
-            <div className="flex-1">
-              <p className="text-xs font-semibold text-gray-900">
-                {nearestAirportForWeather.code} - {weather.location}
-              </p>
-              <p className="text-xs text-gray-600 mt-0.5">
-                {weather.temperature}°{weather.temperatureUnit} - {weather.shortForecast}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Wind: {weather.windSpeed} {weather.windDirection}
-              </p>
-            </div>
+              Conditions
+            </button>
+            <button
+              onClick={() => setWeatherTab("raw")}
+              className={`flex-1 px-3 py-2 text-xs font-medium ${
+                weatherTab === "raw"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              style={{ border: "none", cursor: "pointer", background: "transparent" }}
+            >
+              METAR
+            </button>
           </div>
+
+          {/* Tab Content */}
+          <div style={{ padding: "8px 12px" }}>
+            {weatherTab === "formatted" ? (
+              <div className="flex items-start gap-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="mt-0.5 flex-shrink-0"
+                >
+                  <path d="M12 2v2" />
+                  <path d="M12 20v2" />
+                  <path d="m4.93 4.93 1.41 1.41" />
+                  <path d="m17.66 17.66 1.41 1.41" />
+                  <path d="M2 12h2" />
+                  <path d="M20 12h2" />
+                  <path d="m6.34 17.66-1.41 1.41" />
+                  <path d="m19.07 4.93-1.41 1.41" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-gray-900">
+                    {nearestAirportForWeather.code} - {weather.location}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {weather.temperature}°{weather.temperatureUnit} - {weather.shortForecast}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Wind: {weather.windSpeed} {weather.windDirection}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Visibility: {weather.visibility} SM
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs font-semibold text-gray-900 mb-2">
+                  {nearestAirportForWeather.code}
+                </p>
+                <p className="text-xs text-gray-700 font-mono leading-relaxed break-words">
+                  {weather.detailedForecast}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Component to display aircraft details from the API
+function AircraftDetails({ icao24 }: { icao24: string }) {
+  const { data: aircraftDetails, isLoading } = api.flights.getAircraftDetails.useQuery(
+    { icao24 },
+    {
+      staleTime: 300000, // Cache for 5 minutes
+    }
+  );
+
+  if (isLoading) {
+    return <p className="text-xs text-gray-500 mt-2">Loading aircraft details...</p>;
+  }
+
+  if (!aircraftDetails) {
+    return null;
+  }
+
+  // Format field name from snake_case to Title Case
+  const formatFieldName = (key: string): string => {
+    // Special field name mappings
+    const fieldNameMap: Record<string, string> = {
+      manufacturername: 'Manufacturer',
+    };
+
+    const lowerKey = key.toLowerCase();
+    if (fieldNameMap[lowerKey]) {
+      return fieldNameMap[lowerKey];
+    }
+
+    return key
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
+  // Filter out blank/empty values and unwanted fields
+  const validEntries = aircraftDetails.acf
+    ? Object.entries(aircraftDetails.acf).filter(([key, value]) => {
+        // Skip these fields
+        if (['icao24', 'country', 'registration'].includes(key.toLowerCase())) {
+          return false;
+        }
+        const stringValue = String(value).trim();
+        return stringValue !== '' && stringValue !== 'false' && stringValue !== '0';
+      })
+    : [];
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-200">
+      {validEntries.length > 0 && (
+        <div className="mt-1">
+          {validEntries.map(([key, value]) => (
+            <p key={key} className="text-xs text-gray-600">
+              {formatFieldName(key)}: {String(value)}
+            </p>
+          ))}
         </div>
       )}
     </div>
@@ -470,39 +572,42 @@ function FlightMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: nu
             icon={createAirplaneIcon(rotation, airlineColor)}
           >
             <Popup>
-              <div className="text-sm">
-                <p className="font-bold">
+              <div className="text-xs space-y-0.5">
+                <p className="font-bold text-sm">
                   {flight.callsign || "Unknown Flight"}
+                  {flight.is_military && (
+                    <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
+                      ✈ MILITARY
+                    </span>
+                  )}
+                  {isPrivate && !flight.is_military && (
+                    <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
+                      ✈ PRIVATE
+                    </span>
+                  )}
                 </p>
-                {flight.is_military && (
-                  <p className="text-xs font-semibold" style={{ color: airlineColor }}>
-                    ✈ MILITARY
-                  </p>
-                )}
-                {isPrivate && !flight.is_military && (
-                  <p className="text-xs font-semibold" style={{ color: airlineColor }}>
-                    ✈ PRIVATE
-                  </p>
-                )}
-                {flight.aircraft_type && (
-                  <p className="text-xs">Type: {flight.aircraft_type}</p>
-                )}
-                {flight.registration && (
-                  <p className="text-xs">Registration: {flight.registration}</p>
-                )}
                 {!flight.is_military && !isPrivate && (airlineName || airlineCode) && (
-                  <p className="text-xs" style={{ color: airlineColor }}>
-                    Airline: {airlineName || airlineCode}
+                  <p style={{ color: airlineColor }}>
+                    {airlineName || airlineCode}
                   </p>
                 )}
-                <p>Country: {flight.origin_country}</p>
-                <p>ICAO24: {flight.icao24}</p>
-                {flight.velocity !== null && (
-                  <p>Velocity: {Math.round(flight.velocity * 3.6)} km/h</p>
+                {(flight.aircraft_type || flight.registration) && (
+                  <p className="text-gray-600">
+                    {flight.aircraft_type}
+                    {flight.aircraft_type && flight.registration && " • "}
+                    {flight.registration}
+                  </p>
                 )}
-                {flight.baro_altitude !== null && (
-                  <p>Altitude: {Math.round(flight.baro_altitude)} m</p>
-                )}
+                <p className="text-gray-600">{flight.origin_country}</p>
+                <div className="flex gap-3 text-gray-600">
+                  {flight.velocity !== null && (
+                    <span>{Math.round(flight.velocity * 3.6)} km/h</span>
+                  )}
+                  {flight.baro_altitude !== null && (
+                    <span>{Math.round(flight.baro_altitude)} m</span>
+                  )}
+                </div>
+                <AircraftDetails icao24={flight.icao24} />
               </div>
             </Popup>
           </Marker>
