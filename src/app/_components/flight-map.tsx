@@ -7,6 +7,7 @@ import { api } from "~/trpc/react";
 import L from "leaflet";
 import airlineData from "~/data/airlines.json";
 import airportsData from "~/data/airports.json";
+import { useArticles } from "@pantheon-systems/cpub-react-sdk";
 
 interface FlightMapProps {
   center?: LatLngExpression;
@@ -514,7 +515,15 @@ function AircraftDetails({ icao24 }: { icao24: string }) {
   );
 }
 
-function FlightMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: number; lamax: number; lomax: number }; enabled: boolean }) {
+function FlightMarkers({
+  bounds,
+  enabled,
+  onFlightSelect
+}: {
+  bounds: { lamin: number; lomin: number; lamax: number; lomax: number };
+  enabled: boolean;
+  onFlightSelect: (flight: SelectedFlight) => void;
+}) {
   const { data: civilianFlights, refetch: refetchCivilian } = api.flights.getFlights.useQuery(bounds, {
     refetchInterval: 60000, // Refetch every 1 minute
   });
@@ -587,8 +596,28 @@ function FlightMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: nu
                   )}
                 </p>
                 {!flight.is_military && !isPrivate && (airlineName || airlineCode) && (
-                  <p style={{ color: airlineColor }}>
-                    {airlineName || airlineCode}
+                  <p>
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onFlightSelect({
+                          callsign: flight.callsign,
+                          airlineName: airlineName ?? null,
+                          airlineCode: airlineCode ?? null,
+                          airlineColor,
+                          icao24: flight.icao24,
+                          aircraftType: flight.aircraft_type ?? null,
+                          registration: flight.registration ?? null,
+                          originCountry: flight.origin_country,
+                          velocity: flight.velocity,
+                          baroAltitude: flight.baro_altitude,
+                        });
+                      }}
+                      style={{ color: airlineColor, textDecoration: 'underline', cursor: 'pointer' }}
+                    >
+                      {airlineName || airlineCode}
+                    </a>
                   </p>
                 )}
                 {(flight.aircraft_type || flight.registration) && (
@@ -691,7 +720,13 @@ function ShipMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: numb
 }
 
 // Component to track map bounds and update flight data
-function MapBoundsTracker({ viewMode }: { viewMode: "airplanes" | "ships" }) {
+function MapBoundsTracker({
+  viewMode,
+  onFlightSelect
+}: {
+  viewMode: "airplanes" | "ships";
+  onFlightSelect: (flight: SelectedFlight) => void;
+}) {
   const map = useMap();
   const [bounds, setBounds] = useState({
     lamin: 37.0,
@@ -746,7 +781,7 @@ function MapBoundsTracker({ viewMode }: { viewMode: "airplanes" | "ships" }) {
 
   return (
     <>
-      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} />
+      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} onFlightSelect={onFlightSelect} />
       <ShipMarkers bounds={bounds} enabled={viewMode === "ships"} />
     </>
   );
@@ -810,6 +845,105 @@ function ViewModeControl({
   );
 }
 
+interface SelectedFlight {
+  callsign: string | null;
+  airlineName: string | null;
+  airlineCode: string | null;
+  airlineColor: string;
+  icao24: string;
+  aircraftType: string | null;
+  registration: string | null;
+  originCountry: string;
+  velocity: number | null;
+  baroAltitude: number | null;
+}
+
+// Airline panel that appears in the bottom right
+function AirlinePanel({
+  flight,
+  onClose
+}: {
+  flight: SelectedFlight;
+  onClose: () => void;
+}) {
+  // Fetch all articles
+  const result = useArticles();
+  const { loading, data } = result;
+  const articles = data?.articlesv3?.articles;
+
+  // Filter by slug matching airline ICAO code
+  const article = articles?.find(
+    (a) => a.metadata?.slug === flight.airlineCode?.toLowerCase()
+  );
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: "10px",
+        right: "10px",
+        zIndex: 1000,
+        background: "white",
+        borderRadius: "8px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+        padding: "16px",
+        maxWidth: "400px",
+        maxHeight: "60vh",
+        overflowY: "auto",
+      }}
+    >
+      <div className="flex items-start justify-between mb-3">
+        <h3 className="font-bold text-lg" style={{ color: flight.airlineColor }}>
+          {flight.airlineName || flight.airlineCode || "Unknown Airline"}
+        </h3>
+        <button
+          onClick={onClose}
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: "20px",
+            lineHeight: "1",
+            padding: "0",
+            marginLeft: "8px",
+          }}
+          title="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="text-xs text-gray-600 mb-3">
+        {flight.aircraftType && <p>Aircraft: {flight.aircraftType}</p>}
+        {flight.registration && <p>Registration: {flight.registration}</p>}
+      </div>
+
+      <div className="border-t pt-3">
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading airline info...</p>
+        ) : article ? (
+          <div>
+            {article.snippet && (
+              <p className="text-sm text-gray-700 mb-2">{article.snippet}</p>
+            )}
+            {article.content && (
+              <div
+                className="text-xs prose prose-sm max-w-none"
+                dangerouslySetInnerHTML={{ __html: article.content }}
+              />
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-500">
+            No airline information available.
+            {flight.airlineCode && ` (Looking for slug: ${flight.airlineCode.toLowerCase()})`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function FlightMap({
   center = [37.7749, -122.4194],
   zoom = 10,
@@ -817,6 +951,7 @@ export function FlightMap({
 }: FlightMapProps) {
   const [isClient, setIsClient] = useState(false);
   const [viewMode, setViewMode] = useState<"airplanes" | "ships">("airplanes");
+  const [selectedFlight, setSelectedFlight] = useState<SelectedFlight | null>(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -870,7 +1005,13 @@ export function FlightMap({
       />
       <ViewModeControl viewMode={viewMode} onViewModeChange={setViewMode} />
       <LocationControl />
-      <MapBoundsTracker viewMode={viewMode} />
+      <MapBoundsTracker viewMode={viewMode} onFlightSelect={setSelectedFlight} />
+      {selectedFlight && (
+        <AirlinePanel
+          flight={selectedFlight}
+          onClose={() => setSelectedFlight(null)}
+        />
+      )}
     </MapContainer>
   );
 }

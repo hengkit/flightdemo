@@ -4,6 +4,7 @@ import { type Metadata } from "next";
 import { Geist } from "next/font/google";
 
 import { TRPCReactProvider } from "~/trpc/react";
+import { PantheonClientProvider } from "~/app/_components/pantheon-provider";
 
 export const metadata: Metadata = {
   title: "Your Flight Tracker",
@@ -22,7 +23,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable}`}>
       <body>
-        <TRPCReactProvider>{children}</TRPCReactProvider>
+        <TRPCReactProvider>
+          <PantheonClientProvider>{children}</PantheonClientProvider>
+        </TRPCReactProvider>
       </body>
     </html>
   );

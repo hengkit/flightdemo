@@ -1,0 +1,21 @@
+{
+  "env": {
+    "PANTHEON_API_KEY": "41743aad-6482-45ba-915a-2a073e0a5064"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run dev:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "WebFetch(domain:mcp.content.pantheon.io)",
+      "mcp__content-publisher__list_collections",
+      "mcp__content-publisher__get_document",
+      "mcp__content-publisher__get_collection",
+      "WebFetch(domain:docs.content.pantheon.io)",
+      "mcp__content-publisher__update_document_metadata"
+    ]
+  }
+}

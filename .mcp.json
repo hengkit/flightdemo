@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "pantheon": {
+      "transport": {
+        "type": "sse",
+        "url": "https://mcp.content.pantheon.io/",
+        "headers": {
+          "Authorization": "Bearer ${PANTHEON_API_KEY}"
+        }
+      }
+    }
+  }
+}
