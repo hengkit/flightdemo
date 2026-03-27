@@ -176,6 +176,29 @@ const createShipIcon = (rotation: number) => {
   });
 };
 
+// Custom satellite icon
+const createSatelliteIcon = () => {
+  return L.divIcon({
+    html: `
+      <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 20px; height: 20px;">
+          <!-- Satellite body -->
+          <rect x="12" y="12" width="8" height="8" fill="#7c3aed" stroke="#6d28d9" stroke-width="1.5"/>
+          <!-- Solar panels -->
+          <rect x="4" y="10" width="6" height="12" fill="#a78bfa" stroke="#6d28d9" stroke-width="1"/>
+          <rect x="22" y="10" width="6" height="12" fill="#a78bfa" stroke="#6d28d9" stroke-width="1"/>
+          <!-- Antenna -->
+          <line x1="16" y1="12" x2="16" y2="6" stroke="#6d28d9" stroke-width="1.5"/>
+          <circle cx="16" cy="6" r="1.5" fill="#6d28d9"/>
+        </svg>
+      </div>
+    `,
+    className: "satellite-icon",
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  });
+};
+
 // Component for location-based controls
 function LocationControl() {
   const map = useMap();
@@ -719,12 +742,79 @@ function ShipMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: numb
   );
 }
 
+function SatelliteMarkers({
+  latitude,
+  longitude,
+  enabled
+}: {
+  latitude: number;
+  longitude: number;
+  enabled: boolean;
+}) {
+  const { data: satellites } = api.satellites.getSatellites.useQuery(
+    {
+      latitude,
+      longitude,
+      altitude: 0, // Sea level
+      searchRadius: 90, // All satellites above horizon
+      categoryId: 0, // All categories
+    },
+    {
+      enabled, // Only fetch when space mode is enabled
+      refetchInterval: 60000, // Refetch every 1 minute
+    }
+  );
+
+  // Don't render markers if not enabled
+  if (!enabled) return null;
+
+  if (!satellites || satellites.length === 0) return null;
+
+  return (
+    <>
+      {satellites.map((satellite) => {
+        const position: LatLngExpression = [satellite.satlat, satellite.satlng];
+
+        return (
+          <Marker
+            key={satellite.satid}
+            position={position}
+            icon={createSatelliteIcon()}
+          >
+            <Popup>
+              <div className="text-sm">
+                <p className="font-bold">
+                  {satellite.satname}
+                </p>
+                <p className="text-xs font-semibold text-purple-600">
+                  🛰️ SATELLITE
+                </p>
+                <p className="text-xs">NORAD ID: {satellite.satid}</p>
+                {satellite.intDesignator && (
+                  <p className="text-xs">Designator: {satellite.intDesignator}</p>
+                )}
+                {satellite.launchDate && (
+                  <p className="text-xs">Launched: {satellite.launchDate}</p>
+                )}
+                <p className="text-xs">Altitude: {satellite.satalt.toFixed(1)} km</p>
+                <p className="text-xs">
+                  Position: {satellite.satlat.toFixed(2)}°, {satellite.satlng.toFixed(2)}°
+                </p>
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
+    </>
+  );
+}
+
 // Component to track map bounds and update flight data
 function MapBoundsTracker({
   viewMode,
   onFlightSelect
 }: {
-  viewMode: "airplanes" | "ships";
+  viewMode: "airplanes" | "ships" | "space";
   onFlightSelect: (flight: SelectedFlight) => void;
 }) {
   const map = useMap();
@@ -734,6 +824,10 @@ function MapBoundsTracker({
     lamax: 38.5,
     lomax: -121.5,
   });
+  const [center, setCenter] = useState({
+    latitude: 37.7749,
+    longitude: -122.4194,
+  });
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | null = null;
@@ -742,12 +836,18 @@ function MapBoundsTracker({
       const mapBounds = map.getBounds();
       const sw = mapBounds.getSouthWest();
       const ne = mapBounds.getNorthEast();
+      const mapCenter = map.getCenter();
 
       setBounds({
         lamin: sw.lat,
         lomin: sw.lng,
         lamax: ne.lat,
         lomax: ne.lng,
+      });
+
+      setCenter({
+        latitude: mapCenter.lat,
+        longitude: mapCenter.lng,
       });
     };
 
@@ -783,6 +883,7 @@ function MapBoundsTracker({
     <>
       <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} onFlightSelect={onFlightSelect} />
       <ShipMarkers bounds={bounds} enabled={viewMode === "ships"} />
+      <SatelliteMarkers latitude={center.latitude} longitude={center.longitude} enabled={viewMode === "space"} />
     </>
   );
 }
@@ -792,8 +893,8 @@ function ViewModeControl({
   viewMode,
   onViewModeChange
 }: {
-  viewMode: "airplanes" | "ships";
-  onViewModeChange: (mode: "airplanes" | "ships") => void;
+  viewMode: "airplanes" | "ships" | "space";
+  onViewModeChange: (mode: "airplanes" | "ships" | "space") => void;
 }) {
   return (
     <div
@@ -821,7 +922,7 @@ function ViewModeControl({
             }}
             title="Show airplanes"
           >
-            Flights
+            Air
           </button>
           <button
             onClick={() => onViewModeChange("ships")}
@@ -837,7 +938,23 @@ function ViewModeControl({
             }}
             title="Show ships"
           >
-            Ships
+            Sea
+          </button>
+          <button
+            onClick={() => onViewModeChange("space")}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              viewMode === "space"
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}
+            style={{
+              border: "none",
+              cursor: "pointer",
+              borderRadius: "4px",
+            }}
+            title="Show satellites"
+          >
+            Space
           </button>
         </div>
       </div>
@@ -950,7 +1067,7 @@ export function FlightMap({
   className = "h-96 w-full"
 }: FlightMapProps) {
   const [isClient, setIsClient] = useState(false);
-  const [viewMode, setViewMode] = useState<"airplanes" | "ships">("airplanes");
+  const [viewMode, setViewMode] = useState<"airplanes" | "ships" | "space">("airplanes");
   const [selectedFlight, setSelectedFlight] = useState<SelectedFlight | null>(null);
 
   useEffect(() => {
