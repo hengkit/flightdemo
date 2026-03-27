@@ -1,7 +1,4 @@
 {
-  "env": {
-    "PANTHEON_API_KEY": "41743aad-6482-45ba-915a-2a073e0a5064"
-  },
   "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
