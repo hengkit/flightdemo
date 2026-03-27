@@ -2,6 +2,7 @@
   "env": {
     "PANTHEON_API_KEY": "41743aad-6482-45ba-915a-2a073e0a5064"
   },
+  "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
       "Bash(npm install:*)",
@@ -15,7 +16,9 @@
       "mcp__content-publisher__get_document",
       "mcp__content-publisher__get_collection",
       "WebFetch(domain:docs.content.pantheon.io)",
-      "mcp__content-publisher__update_document_metadata"
+      "mcp__content-publisher__update_document_metadata",
+      "Bash(ls -la /Users/kit/Work/flightdemo/.claude*)",
+      "Bash(claude mcp:*)"
     ]
   }
 }
