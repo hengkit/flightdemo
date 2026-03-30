@@ -756,7 +756,7 @@ function SatelliteMarkers({
       latitude,
       longitude,
       altitude: 0, // Sea level
-      searchRadius: 90, // All satellites above horizon
+      searchRadius: 45, // 45 degrees above horizon
       categoryId: 0, // All categories
     },
     {
