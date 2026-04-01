@@ -7,7 +7,6 @@ import { api } from "~/trpc/react";
 import L from "leaflet";
 import airlineData from "~/data/airlines.json";
 import airportsData from "~/data/airports.json";
-import { useArticles } from "@pantheon-systems/cpub-react-sdk";
 
 interface FlightMapProps {
   center?: LatLngExpression;
@@ -133,11 +132,13 @@ function getAirlineColor(callsign: string | null, isMilitary?: boolean): string 
 }
 
 // Custom airplane icon
-const createAirplaneIcon = (rotation: number, color: string) => {
+const createAirplaneIcon = (rotation: number, color: string, sizeMultiplier: number = 1) => {
+  const baseSize = 28 * sizeMultiplier;
+  const containerSize = 32 * sizeMultiplier;
   return L.divIcon({
     html: `
-      <div style="transform: rotate(${rotation}deg); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
-        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 28px;">
+      <div style="transform: rotate(${rotation}deg); width: ${containerSize}px; height: ${containerSize}px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: ${baseSize}px; height: ${baseSize}px;">
           <!-- Airplane body -->
           <path d="M16 3 L16 22" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
           <!-- Wings (swept back) -->
@@ -151,8 +152,33 @@ const createAirplaneIcon = (rotation: number, color: string) => {
       </div>
     `,
     className: "airplane-icon",
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [containerSize, containerSize],
+    iconAnchor: [containerSize / 2, containerSize / 2],
+  });
+};
+
+// Custom helicopter icon (top-down view)
+const createHelicopterIcon = (rotation: number, color: string, sizeMultiplier: number = 1) => {
+  const baseSize = 28 * sizeMultiplier;
+  const containerSize = 32 * sizeMultiplier;
+  return L.divIcon({
+    html: `
+      <div style="transform: rotate(${rotation}deg); width: ${containerSize}px; height: ${containerSize}px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: ${baseSize}px; height: ${baseSize}px;">
+          <!-- Main rotor (cross) -->
+          <line x1="16" y1="2" x2="16" y2="22" stroke="${color}" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+          <line x1="6" y1="12" x2="26" y2="12" stroke="${color}" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+          <!-- Body -->
+          <circle cx="16" cy="12" r="8" stroke="${color}" stroke-width="2" fill="none"/>
+          <!-- Tail -->
+          <line x1="16" y1="20" x2="16" y2="28" stroke="${color}" stroke-width="2" stroke-linecap="round"/>
+          <line x1="14" y1="28" x2="18" y2="28" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+    `,
+    className: "helicopter-icon",
+    iconSize: [containerSize, containerSize],
+    iconAnchor: [containerSize / 2, containerSize / 2],
   });
 };
 
@@ -477,11 +503,18 @@ function LocationControl() {
 }
 
 // Component to display aircraft details from the API
-function AircraftDetails({ icao24 }: { icao24: string }) {
+function AircraftDetails({
+  icao24,
+  onModelSelect
+}: {
+  icao24: string;
+  onModelSelect?: (modelName: string, typeCode: string) => void;
+}) {
   const { data: aircraftDetails, isLoading } = api.flights.getAircraftDetails.useQuery(
     { icao24 },
     {
       staleTime: 300000, // Cache for 5 minutes
+      enabled: !!icao24 && icao24.trim() !== '', // Only fetch if icao24 exists and is not empty
     }
   );
 
@@ -493,11 +526,19 @@ function AircraftDetails({ icao24 }: { icao24: string }) {
     return null;
   }
 
+  // Get typecode from aircraft details
+  const typeCode = aircraftDetails.acf?.typecode as string | undefined;
+
   // Format field name from snake_case to Title Case
   const formatFieldName = (key: string): string => {
     // Special field name mappings
     const fieldNameMap: Record<string, string> = {
       manufacturername: 'Manufacturer',
+      typecode: 'Type Code',
+      modelname: 'Model Name',
+      model_name: 'Model Name',
+      model: 'Model',
+      icaoaircraftclass: 'ICAO Aircraft Class',
     };
 
     const lowerKey = key.toLowerCase();
@@ -515,7 +556,7 @@ function AircraftDetails({ icao24 }: { icao24: string }) {
   const validEntries = aircraftDetails.acf
     ? Object.entries(aircraftDetails.acf).filter(([key, value]) => {
         // Skip these fields
-        if (['icao24', 'country', 'registration'].includes(key.toLowerCase())) {
+        if (['icao24', 'country', 'registration', 'built'].includes(key.toLowerCase())) {
           return false;
         }
         const stringValue = String(value).trim();
@@ -527,14 +568,150 @@ function AircraftDetails({ icao24 }: { icao24: string }) {
     <div className="mt-2 pt-2 border-t border-gray-200">
       {validEntries.length > 0 && (
         <div className="mt-1">
-          {validEntries.map(([key, value]) => (
-            <p key={key} className="text-xs text-gray-600">
-              {formatFieldName(key)}: {String(value)}
-            </p>
-          ))}
+          {validEntries.map(([key, value]) => {
+            // Check for model name variations
+            const lowerKey = key.toLowerCase().replace(/[_\s-]/g, '');
+            const isModelName = lowerKey === 'modelname' || lowerKey === 'model';
+            return (
+              <p key={key} className="text-xs text-gray-600">
+                {formatFieldName(key)}:{' '}
+                {isModelName && onModelSelect && typeCode ? (
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onModelSelect(String(value), typeCode);
+                    }}
+                    style={{ color: '#374151', textDecoration: 'underline', cursor: 'pointer' }}
+                  >
+                    {String(value)}
+                  </a>
+                ) : (
+                  String(value)
+                )}
+              </p>
+            );
+          })}
         </div>
       )}
     </div>
+  );
+}
+
+// Component for individual aircraft marker with helicopter detection
+function AircraftMarker({
+  flight,
+  position,
+  rotation,
+  airlineColor,
+  airlineCode,
+  airlineName,
+  isPrivate,
+  onFlightSelect
+}: {
+  flight: { icao24: string; callsign: string | null; is_military?: boolean; aircraft_type?: string | null; registration?: string | null; origin_country: string; velocity: number | null; baro_altitude: number | null };
+  position: LatLngExpression;
+  rotation: number;
+  airlineColor: string;
+  airlineCode: string | null | undefined;
+  airlineName: string | null;
+  isPrivate: boolean;
+  onFlightSelect: (flight: SelectedFlight) => void;
+}) {
+  const [popupOpen, setPopupOpen] = useState(false);
+
+  // Only fetch aircraft details when popup is opened
+  const { data: aircraftDetails } = api.flights.getAircraftDetails.useQuery(
+    { icao24: flight.icao24 },
+    {
+      staleTime: 300000, // Cache for 5 minutes
+      enabled: popupOpen && !!flight.icao24 && flight.icao24.trim() !== '',
+    }
+  );
+
+  // Check if it's a helicopter based on icaoaircraftclass field
+  const icaoAircraftClass = aircraftDetails?.acf?.icaoaircraftclass as string | undefined;
+  const isHelicopter = icaoAircraftClass?.toUpperCase().startsWith('H') ?? false;
+
+  // Calculate size multiplier based on icaoaircraftclass
+  let sizeMultiplier = 1;
+  if (icaoAircraftClass) {
+    const classUpper = icaoAircraftClass.toUpperCase();
+    // If ends with J, increase by 25%
+    if (classUpper.endsWith('J')) {
+      sizeMultiplier *= 1.25;
+    }
+  }
+
+  return (
+    <Marker
+      position={position}
+      icon={isHelicopter ? createHelicopterIcon(rotation, airlineColor, sizeMultiplier) : createAirplaneIcon(rotation, airlineColor, sizeMultiplier)}
+      eventHandlers={{
+        popupopen: () => setPopupOpen(true),
+        popupclose: () => setPopupOpen(false),
+      }}
+    >
+      <Popup>
+        <div className="text-xs space-y-0.5">
+          <p className="font-bold text-sm">
+            {flight.callsign || "Unknown Flight"}
+            {flight.is_military && (
+              <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
+                ✈ MILITARY
+              </span>
+            )}
+            {isPrivate && !flight.is_military && (
+              <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
+                ✈ PRIVATE
+              </span>
+            )}
+          </p>
+          {!flight.is_military && !isPrivate && (airlineName || airlineCode) && (
+            <p>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onFlightSelect({
+                    callsign: flight.callsign,
+                    airlineName: airlineName ?? null,
+                    airlineCode: airlineCode ?? null,
+                    airlineColor,
+                    icao24: flight.icao24,
+                    aircraftType: flight.aircraft_type ?? null,
+                    registration: flight.registration ?? null,
+                    originCountry: flight.origin_country,
+                    velocity: flight.velocity,
+                    baroAltitude: flight.baro_altitude,
+                  });
+                }}
+                style={{ color: airlineColor, textDecoration: 'underline', cursor: 'pointer' }}
+              >
+                {airlineName || airlineCode}
+              </a>
+            </p>
+          )}
+          {(flight.aircraft_type || flight.registration) && (
+            <p className="text-gray-600">
+              {flight.aircraft_type}
+              {flight.aircraft_type && flight.registration && " • "}
+              {flight.registration}
+            </p>
+          )}
+          <p className="text-gray-600">{flight.origin_country}</p>
+          <div className="flex gap-3 text-gray-600">
+            {flight.velocity !== null && (
+              <span>{Math.round(flight.velocity * 3.6)} km/h</span>
+            )}
+            {flight.baro_altitude !== null && (
+              <span>{Math.round(flight.baro_altitude)} m</span>
+            )}
+          </div>
+          {popupOpen && <AircraftDetails icao24={flight.icao24} />}
+        </div>
+      </Popup>
+    </Marker>
   );
 }
 
@@ -598,71 +775,17 @@ function FlightMarkers({
         const isPrivate = isPrivateAircraft(flight.callsign);
 
         return (
-          <Marker
+          <AircraftMarker
             key={flight.icao24}
+            flight={flight}
             position={position}
-            icon={createAirplaneIcon(rotation, airlineColor)}
-          >
-            <Popup>
-              <div className="text-xs space-y-0.5">
-                <p className="font-bold text-sm">
-                  {flight.callsign || "Unknown Flight"}
-                  {flight.is_military && (
-                    <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
-                      ✈ MILITARY
-                    </span>
-                  )}
-                  {isPrivate && !flight.is_military && (
-                    <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
-                      ✈ PRIVATE
-                    </span>
-                  )}
-                </p>
-                {!flight.is_military && !isPrivate && (airlineName || airlineCode) && (
-                  <p>
-                    <a
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        onFlightSelect({
-                          callsign: flight.callsign,
-                          airlineName: airlineName ?? null,
-                          airlineCode: airlineCode ?? null,
-                          airlineColor,
-                          icao24: flight.icao24,
-                          aircraftType: flight.aircraft_type ?? null,
-                          registration: flight.registration ?? null,
-                          originCountry: flight.origin_country,
-                          velocity: flight.velocity,
-                          baroAltitude: flight.baro_altitude,
-                        });
-                      }}
-                      style={{ color: airlineColor, textDecoration: 'underline', cursor: 'pointer' }}
-                    >
-                      {airlineName || airlineCode}
-                    </a>
-                  </p>
-                )}
-                {(flight.aircraft_type || flight.registration) && (
-                  <p className="text-gray-600">
-                    {flight.aircraft_type}
-                    {flight.aircraft_type && flight.registration && " • "}
-                    {flight.registration}
-                  </p>
-                )}
-                <p className="text-gray-600">{flight.origin_country}</p>
-                <div className="flex gap-3 text-gray-600">
-                  {flight.velocity !== null && (
-                    <span>{Math.round(flight.velocity * 3.6)} km/h</span>
-                  )}
-                  {flight.baro_altitude !== null && (
-                    <span>{Math.round(flight.baro_altitude)} m</span>
-                  )}
-                </div>
-                <AircraftDetails icao24={flight.icao24} />
-              </div>
-            </Popup>
-          </Marker>
+            rotation={rotation}
+            airlineColor={airlineColor}
+            airlineCode={airlineCode}
+            airlineName={airlineName}
+            isPrivate={isPrivate}
+            onFlightSelect={onFlightSelect}
+          />
         );
       })}
     </>
@@ -975,28 +1098,31 @@ interface SelectedFlight {
   baroAltitude: number | null;
 }
 
-// Airline panel that appears in the bottom right
-function AirlinePanel({
+// Detail panel that appears in the bottom right
+function DetailPanel({
   flight,
   onClose
 }: {
   flight: SelectedFlight;
   onClose: () => void;
 }) {
-  // Fetch all articles
-  const result = useArticles();
-  const { loading, data } = result;
-  const articles = data?.articlesv3?.articles;
+  // Fetch single article by slug (airline ICAO code)
+  const slug = flight.airlineCode?.toLowerCase()?.trim() ?? "";
+  const shouldFetch = slug.length > 0;
 
-  // Filter by slug matching airline ICAO code
-  const article = articles?.find(
-    (a) => a.metadata?.slug === flight.airlineCode?.toLowerCase()
+  const { data: article, isLoading: loading } = api.articles.getBySlug.useQuery(
+    { slug: slug || "none" }, // Provide fallback to avoid empty string
+    {
+      enabled: shouldFetch, // Only fetch if we have a valid airline code
+      staleTime: 300000, // Cache for 5 minutes
+    }
   );
 
   return (
     <div
       style={{
         position: "absolute",
+        top: "10px",
         bottom: "10px",
         right: "10px",
         zIndex: 1000,
@@ -1005,13 +1131,12 @@ function AirlinePanel({
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         padding: "16px",
         maxWidth: "400px",
-        maxHeight: "60vh",
         overflowY: "auto",
       }}
     >
       <div className="flex items-start justify-between mb-3">
         <h3 className="font-bold text-lg" style={{ color: flight.airlineColor }}>
-          {flight.airlineName || flight.airlineCode || "Unknown Airline"}
+          {article?.title || flight.airlineName || flight.airlineCode || "Unknown"}
         </h3>
         <button
           onClick={onClose}
@@ -1035,28 +1160,42 @@ function AirlinePanel({
         {flight.registration && <p>Registration: {flight.registration}</p>}
       </div>
 
-      <div className="border-t pt-3">
+      <div className="border-t pt-3 flex-1 min-h-0">
         {loading ? (
-          <p className="text-sm text-gray-500">Loading airline info...</p>
+          <p className="text-sm text-gray-500">Loading info...</p>
         ) : article ? (
-          <div>
+          <div className="detail-panel-content">
             {article.snippet && (
               <p className="text-sm text-gray-700 mb-2">{article.snippet}</p>
             )}
             {article.content && (
               <div
-                className="text-xs prose prose-sm max-w-none"
+                className="text-sm prose prose-sm max-w-none"
                 dangerouslySetInnerHTML={{ __html: article.content }}
               />
             )}
           </div>
         ) : (
-          <p className="text-xs text-gray-500">
-            No airline information available.
+          <p className="text-sm text-gray-500">
+            No information available.
             {flight.airlineCode && ` (Looking for slug: ${flight.airlineCode.toLowerCase()})`}
           </p>
         )}
       </div>
+      <style>{`
+        .detail-panel-content img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 4px;
+          margin-top: 8px;
+          margin-bottom: 8px;
+          display: block;
+        }
+        .detail-panel-content .prose img {
+          max-width: 100%;
+          height: auto;
+        }
+      `}</style>
     </div>
   );
 }
@@ -1083,13 +1222,15 @@ export function FlightMap({
       });
     });
 
-    // Suppress AbortError from cancelled requests
+    // Suppress AbortError from cancelled requests and tRPC query logs
     const originalError = console.error;
     console.error = (...args: unknown[]) => {
-      const message = args[0];
+      const message = String(args[0] ?? '');
       if (
-        typeof message === 'string' &&
-        (message.includes('AbortError') || message.includes('aborted a request'))
+        message.includes('AbortError') ||
+        message.includes('aborted a request') ||
+        message.includes('[[ << query') ||
+        message.includes('articles.getBySlug')
       ) {
         return;
       }
@@ -1124,7 +1265,7 @@ export function FlightMap({
       <LocationControl />
       <MapBoundsTracker viewMode={viewMode} onFlightSelect={setSelectedFlight} />
       {selectedFlight && (
-        <AirlinePanel
+        <DetailPanel
           flight={selectedFlight}
           onClose={() => setSelectedFlight(null)}
         />

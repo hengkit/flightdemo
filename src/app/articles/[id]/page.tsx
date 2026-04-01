@@ -3,6 +3,79 @@
 import { useArticle } from "@pantheon-systems/cpub-react-sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import React from "react";
+
+interface ContentNode {
+  tag?: string;
+  data?: string | null;
+  children?: ContentNode[] | null;
+  style?: string[] | null;
+  attrs?: Record<string, string> | null;
+}
+
+interface ContentStructure {
+  version?: string;
+  children?: ContentNode[];
+}
+
+function ContentRenderer({ content }: { content: string | null | undefined }) {
+  if (!content) return null;
+
+  // Try to parse as JSON
+  let parsedContent: ContentStructure;
+  try {
+    parsedContent = JSON.parse(content) as ContentStructure;
+  } catch {
+    // If not JSON, render as HTML
+    return <div dangerouslySetInnerHTML={{ __html: content }} />;
+  }
+
+  const renderNode = (node: ContentNode, index: number): React.ReactNode => {
+    // If it's just text data
+    if (node.data && !node.tag) {
+      return node.data;
+    }
+
+    // Skip style tags
+    if (node.tag === "style") {
+      return null;
+    }
+
+    const Tag = (node.tag || "span") as keyof JSX.IntrinsicElements;
+    const styleObj: React.CSSProperties = {};
+
+    // Parse inline styles
+    if (node.style) {
+      node.style.forEach((styleStr) => {
+        const [key, value] = styleStr.split(":");
+        if (key && value) {
+          const camelKey = key.trim().replace(/-([a-z])/g, (g) => g[1]!.toUpperCase());
+          styleObj[camelKey as keyof React.CSSProperties] = value.trim() as never;
+        }
+      });
+    }
+
+    // Build props
+    const props: Record<string, unknown> = {
+      key: index,
+      ...(node.attrs || {}),
+      style: Object.keys(styleObj).length > 0 ? styleObj : undefined,
+    };
+
+    // Render children
+    const children = node.children
+      ? node.children.map((child, i) => renderNode(child, i))
+      : node.data || null;
+
+    return React.createElement(Tag, props, children);
+  };
+
+  return (
+    <div className="prose prose-invert max-w-none">
+      {parsedContent.children?.map((node, i) => renderNode(node, i))}
+    </div>
+  );
+}
 
 export default function ArticlePage() {
   const params = useParams();
@@ -89,17 +162,25 @@ export default function ArticlePage() {
             </div>
           )}
 
-          <div
-            className="prose prose-invert max-w-none"
-            dangerouslySetInnerHTML={{ __html: article.content || "" }}
-          />
+          <ContentRenderer content={article.content} />
 
-          {article.metadata && (
-            <div className="mt-8 rounded-lg bg-white/5 p-4">
-              <h2 className="mb-2 text-xl font-bold">Metadata</h2>
-              <pre className="overflow-auto text-xs">
-                {JSON.stringify(article.metadata, null, 2)}
-              </pre>
+          {article.metadata && Object.keys(article.metadata).length > 0 && (
+            <div className="mt-8 rounded-lg bg-white/5 p-6">
+              <h2 className="mb-4 text-xl font-bold">Metadata</h2>
+              <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {Object.entries(article.metadata).map(([key, value]) => (
+                  <div key={key} className="rounded-lg bg-white/5 p-4">
+                    <dt className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400">
+                      {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim()}
+                    </dt>
+                    <dd className="text-base text-white">
+                      {typeof value === 'object' && value !== null
+                        ? JSON.stringify(value, null, 2)
+                        : String(value)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </div>
           )}
         </article>

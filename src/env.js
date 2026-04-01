@@ -12,6 +12,7 @@ export const env = createEnv({
   client: {
     NEXT_PUBLIC_PCC_TOKEN: z.string(),
     NEXT_PUBLIC_PCC_SITE_ID: z.string(),
+    NEXT_PUBLIC_PCC_COLLECTION_ID: z.string().optional(),
   },
 
 
@@ -23,6 +24,7 @@ export const env = createEnv({
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_PCC_TOKEN: process.env.NEXT_PUBLIC_PCC_TOKEN,
     NEXT_PUBLIC_PCC_SITE_ID: process.env.NEXT_PUBLIC_PCC_SITE_ID,
+    NEXT_PUBLIC_PCC_COLLECTION_ID: process.env.NEXT_PUBLIC_PCC_COLLECTION_ID,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
