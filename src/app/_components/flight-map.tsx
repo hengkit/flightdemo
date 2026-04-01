@@ -820,20 +820,22 @@ function FlightMarkers({
   onModelSelect: (modelName: string, typeCode: string) => void;
 }) {
   const { data: civilianFlights, refetch: refetchCivilian } = api.flights.getFlights.useQuery(bounds, {
-    refetchInterval: env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL,
+    refetchInterval: enabled ? env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL : false,
+    enabled,
   });
 
   const { data: militaryFlights, refetch: refetchMilitary } = api.flights.getMilitaryFlights.useQuery(undefined, {
-    refetchInterval: env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL,
+    refetchInterval: enabled ? env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL : false,
+    enabled,
   });
 
+  // Trigger immediate refetch when enabled changes to true
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (enabled) {
       void refetchCivilian();
       void refetchMilitary();
-    }, env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL);
-    return () => clearInterval(interval);
-  }, [refetchCivilian, refetchMilitary]);
+    }
+  }, [enabled, refetchCivilian, refetchMilitary]);
 
   // Don't render markers if not enabled
   if (!enabled) return null;
@@ -889,9 +891,17 @@ function FlightMarkers({
 }
 
 function ShipMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: number; lamax: number; lomax: number }; enabled: boolean }) {
-  const { data: ships } = api.ships.getShips.useQuery(bounds, {
-    refetchInterval: env.NEXT_PUBLIC_SHIPS_REFETCH_INTERVAL,
+  const { data: ships, refetch } = api.ships.getShips.useQuery(bounds, {
+    refetchInterval: enabled ? env.NEXT_PUBLIC_SHIPS_REFETCH_INTERVAL : false,
+    enabled,
   });
+
+  // Trigger immediate refetch when enabled changes to true
+  useEffect(() => {
+    if (enabled) {
+      void refetch();
+    }
+  }, [enabled, refetch]);
 
   // Don't render markers if not enabled
   if (!enabled) return null;
@@ -970,7 +980,7 @@ function SatelliteMarkers({
   longitude: number;
   enabled: boolean;
 }) {
-  const { data: satellites } = api.satellites.getSatellites.useQuery(
+  const { data: satellites, refetch } = api.satellites.getSatellites.useQuery(
     {
       latitude,
       longitude,
@@ -980,9 +990,16 @@ function SatelliteMarkers({
     },
     {
       enabled, // Only fetch when space mode is enabled
-      refetchInterval: env.NEXT_PUBLIC_SATELLITES_REFETCH_INTERVAL,
+      refetchInterval: enabled ? env.NEXT_PUBLIC_SATELLITES_REFETCH_INTERVAL : false,
     }
   );
+
+  // Trigger immediate refetch when enabled changes to true
+  useEffect(() => {
+    if (enabled) {
+      void refetch();
+    }
+  }, [enabled, refetch]);
 
   // Don't render markers if not enabled
   if (!enabled) return null;
@@ -1049,6 +1066,7 @@ function MapBoundsTracker({
     latitude: 37.7749,
     longitude: -122.4194,
   });
+  const [zoom, setZoom] = useState(map.getZoom());
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | null = null;
@@ -1058,6 +1076,7 @@ function MapBoundsTracker({
       const sw = mapBounds.getSouthWest();
       const ne = mapBounds.getNorthEast();
       const mapCenter = map.getCenter();
+      const currentZoom = map.getZoom();
 
       setBounds({
         lamin: sw.lat,
@@ -1070,6 +1089,8 @@ function MapBoundsTracker({
         latitude: mapCenter.lat,
         longitude: mapCenter.lng,
       });
+
+      setZoom(currentZoom);
     };
 
     const debouncedUpdateBounds = () => {
@@ -1100,12 +1121,76 @@ function MapBoundsTracker({
     };
   }, [map]);
 
+  // Only enable API calls if zoom level is greater than 8
+  const shouldFetchData = zoom > 8;
+
   return (
     <>
-      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} onFlightSelect={onFlightSelect} onModelSelect={onModelSelect} />
-      <ShipMarkers bounds={bounds} enabled={viewMode === "ships"} />
-      <SatelliteMarkers latitude={center.latitude} longitude={center.longitude} enabled={viewMode === "space"} />
+      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes" && shouldFetchData} onFlightSelect={onFlightSelect} onModelSelect={onModelSelect} />
+      <ShipMarkers bounds={bounds} enabled={viewMode === "ships" && shouldFetchData} />
+      <SatelliteMarkers latitude={center.latitude} longitude={center.longitude} enabled={viewMode === "space" && shouldFetchData} />
     </>
+  );
+}
+
+// Component to display zoom level notice
+function ZoomNotice() {
+  const map = useMap();
+  const [zoom, setZoom] = useState(map.getZoom());
+
+  useEffect(() => {
+    const updateZoom = () => {
+      setZoom(map.getZoom());
+    };
+
+    map.on("zoomend", updateZoom);
+    return () => {
+      map.off("zoomend", updateZoom);
+    };
+  }, [map]);
+
+  if (zoom > 8) return null;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        zIndex: 1000,
+        background: "rgba(255, 255, 255, 0.95)",
+        borderRadius: "8px",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+        padding: "16px 24px",
+        textAlign: "center",
+        pointerEvents: "none",
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ color: "#3b82f6" }}
+        >
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+          <path d="M11 8v6" />
+          <path d="M8 11h6" />
+        </svg>
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Zoom in for updates</p>
+          <p className="text-xs text-gray-600">Use the map controls to see vehicles</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1213,13 +1298,17 @@ function AirlinesPanel({
   const slug = flight.airlineCode?.toLowerCase()?.trim() ?? "";
   const shouldFetch = slug.length > 0;
 
-  const { data: article, isLoading: loading } = api.articles.getBySlug.useQuery(
+  const { data: article, isLoading: loading, refetch } = api.articles.getBySlug.useQuery(
     { slug: slug || "none" }, // Provide fallback to avoid empty string
     {
       enabled: shouldFetch, // Only fetch if we have a valid airline code
       staleTime: env.NEXT_PUBLIC_ARTICLES_STALE_TIME,
     }
   );
+
+  const handleRefresh = async () => {
+    await refetch();
+  };
 
   return (
     <div
@@ -1234,7 +1323,7 @@ function AirlinesPanel({
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         padding: "16px",
         maxWidth: "400px",
-        maxHeight: "50vh",
+        maxHeight: "80vh",
         overflowY: "scroll",
       }}
     >
@@ -1242,21 +1331,38 @@ function AirlinesPanel({
         <h3 className="font-bold text-lg" style={{ color: flight.airlineColor }}>
           {article?.title || flight.airlineName || flight.airlineCode || "Unknown"}
         </h3>
-        <button
-          onClick={onClose}
-          style={{
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            fontSize: "20px",
-            lineHeight: "1",
-            padding: "0",
-            marginLeft: "8px",
-          }}
-          title="Close"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: loading ? "not-allowed" : "pointer",
+              fontSize: "16px",
+              lineHeight: "1",
+              padding: "4px",
+              opacity: loading ? 0.5 : 1,
+            }}
+            title="Refresh article"
+          >
+            🔄
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: "20px",
+              lineHeight: "1",
+              padding: "0",
+            }}
+            title="Close"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="text-xs text-gray-600 mb-3">
@@ -1298,12 +1404,16 @@ function AirlinesPanel({
           background: #555;
         }
         .airlines-panel-content img {
-          max-width: 100%;
-          height: auto;
+          max-width: 100% !important;
+          max-height: none !important;
+          height: auto !important;
           border-radius: 4px;
           margin-top: 8px;
           margin-bottom: 8px;
           display: block;
+        }
+        .airlines-panel-content span {
+          max-height: none !important;
         }
         .airlines-panel-content .prose img {
           max-width: 100%;
@@ -1326,13 +1436,17 @@ function ModelPanel({
   const slug = model.typeCode?.toLowerCase()?.trim() ?? "";
   const shouldFetch = slug.length > 0;
 
-  const { data: article, isLoading: loading } = api.articles.getBySlug.useQuery(
+  const { data: article, isLoading: loading, refetch } = api.articles.getBySlug.useQuery(
     { slug: slug || "none" }, // Provide fallback to avoid empty string
     {
       enabled: shouldFetch, // Only fetch if we have a valid type code
       staleTime: env.NEXT_PUBLIC_ARTICLES_STALE_TIME,
     }
   );
+
+  const handleRefresh = async () => {
+    await refetch();
+  };
 
   return (
     <div
@@ -1347,7 +1461,7 @@ function ModelPanel({
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         padding: "16px",
         maxWidth: "400px",
-        maxHeight: "50vh",
+        maxHeight: "80vh",
         overflowY: "scroll",
       }}
     >
@@ -1355,21 +1469,38 @@ function ModelPanel({
         <h3 className="font-bold text-lg text-blue-600">
           {article?.title || model.modelName}
         </h3>
-        <button
-          onClick={onClose}
-          style={{
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            fontSize: "20px",
-            lineHeight: "1",
-            padding: "0",
-            marginLeft: "8px",
-          }}
-          title="Close"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: loading ? "not-allowed" : "pointer",
+              fontSize: "16px",
+              lineHeight: "1",
+              padding: "4px",
+              opacity: loading ? 0.5 : 1,
+            }}
+            title="Refresh article"
+          >
+            🔄
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: "20px",
+              lineHeight: "1",
+              padding: "0",
+            }}
+            title="Close"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="text-xs text-gray-600 mb-3">
@@ -1410,12 +1541,16 @@ function ModelPanel({
           background: #555;
         }
         .model-panel-content img {
-          max-width: 100%;
-          height: auto;
+          max-width: 100% !important;
+          max-height: none !important;
+          height: auto !important;
           border-radius: 4px;
           margin-top: 8px;
           margin-bottom: 8px;
           display: block;
+        }
+        .model-panel-content span {
+          max-height: none !important;
         }
         .model-panel-content .prose img {
           max-width: 100%;
@@ -1493,6 +1628,7 @@ export function FlightMap({
       <ZoomControl position="topleft" />
       <ViewModeControl viewMode={viewMode} onViewModeChange={setViewMode} />
       <LocationControl />
+      <ZoomNotice />
       <MapBoundsTracker
         viewMode={viewMode}
         onFlightSelect={(flight) => {
