@@ -7,6 +7,85 @@ import { api } from "~/trpc/react";
 import L from "leaflet";
 import airlineData from "~/data/airlines.json";
 import airportsData from "~/data/airports.json";
+import React from "react";
+
+interface ContentNode {
+  tag?: string;
+  data?: string | null;
+  children?: ContentNode[] | null;
+  style?: string[] | null;
+  attrs?: Record<string, string> | null;
+}
+
+interface ContentStructure {
+  version?: string;
+  children?: ContentNode[];
+}
+
+function ContentRenderer({ content }: { content: string | null | undefined }) {
+  if (!content) return null;
+
+  // Try to parse as JSON
+  let parsedContent: ContentStructure;
+  try {
+    parsedContent = JSON.parse(content) as ContentStructure;
+  } catch {
+    // If not JSON, render as HTML
+    return <div dangerouslySetInnerHTML={{ __html: content }} />;
+  }
+
+  const renderNode = (node: ContentNode, index: number): React.ReactNode => {
+    // If it's just text data
+    if (node.data && !node.tag) {
+      return node.data;
+    }
+
+    // Skip style tags
+    if (node.tag === "style") {
+      return null;
+    }
+
+    const Tag = (node.tag || "span") as keyof JSX.IntrinsicElements;
+    const styleObj: React.CSSProperties = {};
+
+    // Parse inline styles
+    if (node.style) {
+      node.style.forEach((styleStr) => {
+        const [key, value] = styleStr.split(":");
+        if (key && value) {
+          const camelKey = key.trim().replace(/-([a-z])/g, (g) => g[1]!.toUpperCase());
+          styleObj[camelKey as keyof React.CSSProperties] = value.trim() as never;
+        }
+      });
+    }
+
+    // Build props and convert class to className for React
+    const attrs = { ...(node.attrs || {}) };
+    if (attrs.class) {
+      attrs.className = attrs.class;
+      delete attrs.class;
+    }
+
+    const props: Record<string, unknown> = {
+      key: index,
+      ...attrs,
+      style: Object.keys(styleObj).length > 0 ? styleObj : undefined,
+    };
+
+    // Render children
+    const children = node.children
+      ? node.children.map((child, i) => renderNode(child, i))
+      : node.data || null;
+
+    return React.createElement(Tag, props, children);
+  };
+
+  return (
+    <div className="prose prose-sm max-w-none">
+      {parsedContent.children?.map((node, i) => renderNode(node, i))}
+    </div>
+  );
+}
 
 interface FlightMapProps {
   center?: LatLngExpression;
@@ -1098,8 +1177,8 @@ interface SelectedFlight {
   baroAltitude: number | null;
 }
 
-// Detail panel that appears in the bottom right
-function DetailPanel({
+// Airlines panel that appears in the bottom right
+function AirlinesPanel({
   flight,
   onClose
 }: {
@@ -1122,7 +1201,6 @@ function DetailPanel({
     <div
       style={{
         position: "absolute",
-        top: "10px",
         bottom: "10px",
         right: "10px",
         zIndex: 1000,
@@ -1131,6 +1209,7 @@ function DetailPanel({
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
         padding: "16px",
         maxWidth: "400px",
+        maxHeight: "50vh",
         overflowY: "auto",
       }}
     >
@@ -1164,15 +1243,11 @@ function DetailPanel({
         {loading ? (
           <p className="text-sm text-gray-500">Loading info...</p>
         ) : article ? (
-          <div className="detail-panel-content">
-            {article.snippet && (
-              <p className="text-sm text-gray-700 mb-2">{article.snippet}</p>
-            )}
+          <div className="airlines-panel-content">
             {article.content && (
-              <div
-                className="text-sm prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: article.content }}
-              />
+              <div className="text-sm">
+                <ContentRenderer content={article.content} />
+              </div>
             )}
           </div>
         ) : (
@@ -1183,7 +1258,7 @@ function DetailPanel({
         )}
       </div>
       <style>{`
-        .detail-panel-content img {
+        .airlines-panel-content img {
           max-width: 100%;
           height: auto;
           border-radius: 4px;
@@ -1191,7 +1266,7 @@ function DetailPanel({
           margin-bottom: 8px;
           display: block;
         }
-        .detail-panel-content .prose img {
+        .airlines-panel-content .prose img {
           max-width: 100%;
           height: auto;
         }
@@ -1229,8 +1304,9 @@ export function FlightMap({
       if (
         message.includes('AbortError') ||
         message.includes('aborted a request') ||
-        message.includes('[[ << query') ||
-        message.includes('articles.getBySlug')
+        message.includes('[[ <<') ||
+        message.includes('>> ]]') ||
+        message.includes('query #')
       ) {
         return;
       }
@@ -1265,7 +1341,7 @@ export function FlightMap({
       <LocationControl />
       <MapBoundsTracker viewMode={viewMode} onFlightSelect={setSelectedFlight} />
       {selectedFlight && (
-        <DetailPanel
+        <AirlinesPanel
           flight={selectedFlight}
           onClose={() => setSelectedFlight(null)}
         />

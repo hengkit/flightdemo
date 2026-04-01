@@ -25,50 +25,48 @@ async function fetchAllArticles() {
     return articlesCache;
   }
 
-  // Fetch from Pantheon Content Publisher API
-  const siteId = process.env.NEXT_PUBLIC_PCC_SITE_ID;
   const token = process.env.NEXT_PUBLIC_PCC_TOKEN;
 
-  if (!siteId || !token) {
-    console.error("Missing Pantheon credentials");
+  if (!token) {
+    console.error("Missing Pantheon token");
     return [];
   }
 
-  // Simple query without complex filters
-  const query = `
-    query {
-      articlesv3(
-        limit: 100
-      ) {
-        articles {
-          id
-          title
-          snippet
-          content
-          tags
-          publishedDate
-          metadata
-          siteId
+  try {
+    // Use the GraphQL API endpoint
+    const query = `
+      query ListArticles {
+        articlesv3(
+          pageSize: 100
+          publishingLevel: PRODUCTION
+        ) {
+          articles {
+            id
+            title
+            snippet
+            metadata
+            tags
+            publishedDate
+            resolvedContent
+          }
         }
       }
-    }
-  `;
+    `;
 
-  try {
     const response = await fetch(
-      `https://api.content.pantheon.io/api/v1/${siteId}/graphql`,
+      `https://gql.prod.pcc.pantheon.io/sites/${AIRLINES_COLLECTION_ID}/query`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          "PCC-TOKEN": token,
         },
         body: JSON.stringify({ query }),
       }
     );
 
     if (!response.ok) {
-      console.error(`Failed to fetch articles: ${response.statusText}`);
+      console.error(`Failed to fetch articles: ${response.status} ${response.statusText}`);
       return articlesCache ?? [];
     }
 
@@ -79,19 +77,23 @@ async function fetchAllArticles() {
             id: string;
             title: string;
             snippet?: string;
-            content?: string;
+            resolvedContent?: string;
             tags?: string[];
             publishedDate?: string;
             metadata?: Record<string, unknown>;
-            siteId?: string;
           }>;
         };
       };
     };
 
-    // Filter to only airlines collection articles
-    const allArticles = result.data?.articlesv3?.articles ?? [];
-    articlesCache = allArticles.filter(a => a.siteId === AIRLINES_COLLECTION_ID);
+    const articles = result.data?.articlesv3?.articles ?? [];
+
+    // Map resolvedContent to content for consistency
+    articlesCache = articles.map(article => ({
+      ...article,
+      content: article.resolvedContent,
+    }));
+
     cacheTimestamp = now;
 
     console.log(`Cached ${articlesCache.length} articles from airlines collection`);

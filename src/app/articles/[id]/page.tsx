@@ -55,10 +55,16 @@ function ContentRenderer({ content }: { content: string | null | undefined }) {
       });
     }
 
-    // Build props
+    // Build props and convert class to className for React
+    const attrs = { ...(node.attrs || {}) };
+    if (attrs.class) {
+      attrs.className = attrs.class;
+      delete attrs.class;
+    }
+
     const props: Record<string, unknown> = {
       key: index,
-      ...(node.attrs || {}),
+      ...attrs,
       style: Object.keys(styleObj).length > 0 ? styleObj : undefined,
     };
 
