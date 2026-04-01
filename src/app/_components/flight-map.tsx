@@ -686,7 +686,8 @@ function AircraftMarker({
   airlineCode,
   airlineName,
   isPrivate,
-  onFlightSelect
+  onFlightSelect,
+  onModelSelect
 }: {
   flight: { icao24: string; callsign: string | null; is_military?: boolean; aircraft_type?: string | null; registration?: string | null; origin_country: string; velocity: number | null; baro_altitude: number | null };
   position: LatLngExpression;
@@ -696,6 +697,7 @@ function AircraftMarker({
   airlineName: string | null;
   isPrivate: boolean;
   onFlightSelect: (flight: SelectedFlight) => void;
+  onModelSelect: (modelName: string, typeCode: string) => void;
 }) {
   const [popupOpen, setPopupOpen] = useState(false);
 
@@ -787,7 +789,7 @@ function AircraftMarker({
               <span>{Math.round(flight.baro_altitude)} m</span>
             )}
           </div>
-          {popupOpen && <AircraftDetails icao24={flight.icao24} />}
+          {popupOpen && <AircraftDetails icao24={flight.icao24} onModelSelect={onModelSelect} />}
         </div>
       </Popup>
     </Marker>
@@ -797,11 +799,13 @@ function AircraftMarker({
 function FlightMarkers({
   bounds,
   enabled,
-  onFlightSelect
+  onFlightSelect,
+  onModelSelect
 }: {
   bounds: { lamin: number; lomin: number; lamax: number; lomax: number };
   enabled: boolean;
   onFlightSelect: (flight: SelectedFlight) => void;
+  onModelSelect: (modelName: string, typeCode: string) => void;
 }) {
   const { data: civilianFlights, refetch: refetchCivilian } = api.flights.getFlights.useQuery(bounds, {
     refetchInterval: 60000, // Refetch every 1 minute
@@ -864,6 +868,7 @@ function FlightMarkers({
             airlineName={airlineName}
             isPrivate={isPrivate}
             onFlightSelect={onFlightSelect}
+            onModelSelect={onModelSelect}
           />
         );
       })}
@@ -1014,10 +1019,12 @@ function SatelliteMarkers({
 // Component to track map bounds and update flight data
 function MapBoundsTracker({
   viewMode,
-  onFlightSelect
+  onFlightSelect,
+  onModelSelect
 }: {
   viewMode: "airplanes" | "ships" | "space";
   onFlightSelect: (flight: SelectedFlight) => void;
+  onModelSelect: (modelName: string, typeCode: string) => void;
 }) {
   const map = useMap();
   const [bounds, setBounds] = useState({
@@ -1083,7 +1090,7 @@ function MapBoundsTracker({
 
   return (
     <>
-      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} onFlightSelect={onFlightSelect} />
+      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes"} onFlightSelect={onFlightSelect} onModelSelect={onModelSelect} />
       <ShipMarkers bounds={bounds} enabled={viewMode === "ships"} />
       <SatelliteMarkers latitude={center.latitude} longitude={center.longitude} enabled={viewMode === "space"} />
     </>
@@ -1175,6 +1182,11 @@ interface SelectedFlight {
   originCountry: string;
   velocity: number | null;
   baroAltitude: number | null;
+}
+
+interface SelectedModel {
+  modelName: string;
+  typeCode: string;
 }
 
 // Airlines panel that appears in the bottom right
@@ -1275,6 +1287,103 @@ function AirlinesPanel({
   );
 }
 
+// Model panel that appears in the bottom right
+function ModelPanel({
+  model,
+  onClose
+}: {
+  model: SelectedModel;
+  onClose: () => void;
+}) {
+  // Fetch single article by slug (aircraft type code)
+  const slug = model.typeCode?.toLowerCase()?.trim() ?? "";
+  const shouldFetch = slug.length > 0;
+
+  const { data: article, isLoading: loading } = api.articles.getBySlug.useQuery(
+    { slug: slug || "none" }, // Provide fallback to avoid empty string
+    {
+      enabled: shouldFetch, // Only fetch if we have a valid type code
+      staleTime: 300000, // Cache for 5 minutes
+    }
+  );
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: "10px",
+        right: "10px",
+        zIndex: 1000,
+        background: "white",
+        borderRadius: "8px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+        padding: "16px",
+        maxWidth: "400px",
+        maxHeight: "50vh",
+        overflowY: "auto",
+      }}
+    >
+      <div className="flex items-start justify-between mb-3">
+        <h3 className="font-bold text-lg text-blue-600">
+          {article?.title || model.modelName}
+        </h3>
+        <button
+          onClick={onClose}
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: "20px",
+            lineHeight: "1",
+            padding: "0",
+            marginLeft: "8px",
+          }}
+          title="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="text-xs text-gray-600 mb-3">
+        <p>Type Code: {model.typeCode}</p>
+      </div>
+
+      <div className="border-t pt-3 flex-1 min-h-0">
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading info...</p>
+        ) : article ? (
+          <div className="model-panel-content">
+            {article.content && (
+              <div className="text-sm">
+                <ContentRenderer content={article.content} />
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">
+            No information available.
+            {model.typeCode && ` (Looking for slug: ${model.typeCode.toLowerCase()})`}
+          </p>
+        )}
+      </div>
+      <style>{`
+        .model-panel-content img {
+          max-width: 100%;
+          height: auto;
+          border-radius: 4px;
+          margin-top: 8px;
+          margin-bottom: 8px;
+          display: block;
+        }
+        .model-panel-content .prose img {
+          max-width: 100%;
+          height: auto;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export function FlightMap({
   center = [37.7749, -122.4194],
   zoom = 10,
@@ -1283,6 +1392,7 @@ export function FlightMap({
   const [isClient, setIsClient] = useState(false);
   const [viewMode, setViewMode] = useState<"airplanes" | "ships" | "space">("airplanes");
   const [selectedFlight, setSelectedFlight] = useState<SelectedFlight | null>(null);
+  const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
 
   useEffect(() => {
     setIsClient(true);
@@ -1339,11 +1449,27 @@ export function FlightMap({
       />
       <ViewModeControl viewMode={viewMode} onViewModeChange={setViewMode} />
       <LocationControl />
-      <MapBoundsTracker viewMode={viewMode} onFlightSelect={setSelectedFlight} />
-      {selectedFlight && (
+      <MapBoundsTracker
+        viewMode={viewMode}
+        onFlightSelect={(flight) => {
+          setSelectedFlight(flight);
+          setSelectedModel(null); // Close model panel when selecting flight
+        }}
+        onModelSelect={(modelName, typeCode) => {
+          setSelectedModel({ modelName, typeCode });
+          setSelectedFlight(null); // Close airlines panel when selecting model
+        }}
+      />
+      {selectedFlight && !selectedModel && (
         <AirlinesPanel
           flight={selectedFlight}
           onClose={() => setSelectedFlight(null)}
+        />
+      )}
+      {selectedModel && (
+        <ModelPanel
+          model={selectedModel}
+          onClose={() => setSelectedModel(null)}
         />
       )}
     </MapContainer>
