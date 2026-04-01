@@ -96,6 +96,14 @@
     "lon": -112.0081
   },
   {
+    "code": "SAN",
+    "name": "San Diego International Airport",
+    "city": "San Diego",
+    "country": "USA",
+    "lat": 32.7336,
+    "lon": -117.1897
+  },
+  {
     "code": "IAH",
     "name": "George Bush Intercontinental Airport",
     "city": "Houston",

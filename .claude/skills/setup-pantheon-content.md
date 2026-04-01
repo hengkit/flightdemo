@@ -1,23 +1,24 @@
 ---
 name: setup-pantheon-content
-description: Set up Pantheon Content Publisher SDK in a Next.js app
-tags: [pantheon, cms, nextjs, integration]
+description: Set up Pantheon Content Publisher with tRPC in a Next.js app
+tags: [pantheon, cms, nextjs, trpc, integration]
 ---
 
 # Setup Pantheon Content Publisher
 
-This skill sets up the Pantheon Content Publisher React SDK in a Next.js application.
+This skill sets up Pantheon Content Publisher in a Next.js application using tRPC for server-side queries and the React SDK for client-side features.
 
 ## Prerequisites
 
 - Next.js app with App Router
+- tRPC set up in the project
 - Pantheon Content Publisher account with:
-  - Site/Collection ID
+  - Collection ID (for specific collections)
   - API Token
 
 ## Steps
 
-### 1. Install the SDK
+### 1. Install the SDK (Optional - for client-side features)
 
 ```bash
 npm install @pantheon-systems/cpub-react-sdk
@@ -29,10 +30,10 @@ Add to `.env`:
 
 ```env
 NEXT_PUBLIC_PCC_TOKEN="your-token-here"
-NEXT_PUBLIC_PCC_SITE_ID="your-site-id-here"
+NEXT_PUBLIC_PCC_SITE_ID="your-collection-id-here"
 ```
 
-Update `src/env.js` (or equivalent env validation file):
+Update `src/env.js`:
 
 ```javascript
 client: {
@@ -46,147 +47,187 @@ runtimeEnv: {
 },
 ```
 
-### 3. Create Pantheon Client
+### 3. Create tRPC Articles Router
 
-Create `src/lib/pantheon.ts`:
+Create `src/server/api/routers/articles.ts`:
 
 ```typescript
-import { PantheonClient } from "@pantheon-systems/cpub-react-sdk";
-import { env } from "~/env";
+import { z } from "zod";
+import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 
-export const pantheonClient = new PantheonClient({
-  siteId: env.NEXT_PUBLIC_PCC_SITE_ID,
-  token: env.NEXT_PUBLIC_PCC_TOKEN,
-  debug: process.env.NODE_ENV === "development",
+const COLLECTION_ID = "your-collection-id";
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+let articlesCache: Array<{
+  id: string;
+  title: string;
+  snippet?: string;
+  content?: string;
+  metadata?: { slug?: string; [key: string]: unknown };
+}> | null = null;
+let cacheTimestamp = 0;
+
+async function fetchAllArticles() {
+  const now = Date.now();
+  if (articlesCache && (now - cacheTimestamp) < CACHE_DURATION) {
+    return articlesCache;
+  }
+
+  const token = process.env.NEXT_PUBLIC_PCC_TOKEN;
+  if (!token) return [];
+
+  const query = `
+    query ListArticles {
+      articlesv3(pageSize: 100, publishingLevel: PRODUCTION) {
+        articles {
+          id
+          title
+          snippet
+          metadata
+          resolvedContent
+        }
+      }
+    }
+  `;
+
+  const response = await fetch(
+    `https://gql.prod.pcc.pantheon.io/sites/${COLLECTION_ID}/query`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "PCC-TOKEN": token,
+      },
+      body: JSON.stringify({ query }),
+    }
+  );
+
+  const result = await response.json();
+  const articles = result.data?.articlesv3?.articles ?? [];
+  
+  articlesCache = articles.map(article => ({
+    ...article,
+    content: article.resolvedContent,
+  }));
+  cacheTimestamp = now;
+  
+  return articlesCache;
+}
+
+export const articlesRouter = createTRPCRouter({
+  getBySlug: publicProcedure
+    .input(z.object({ slug: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const articles = await fetchAllArticles();
+      return articles.find(a => a.metadata?.slug === input.slug) ?? null;
+    }),
 });
 ```
 
-### 4. Create Provider Component
-
-Create `src/app/_components/pantheon-provider.tsx`:
+Register the router in `src/server/api/root.ts`:
 
 ```typescript
-"use client";
+import { articlesRouter } from "~/server/api/routers/articles";
 
-import { PantheonProvider } from "@pantheon-systems/cpub-react-sdk";
-import { pantheonClient } from "~/lib/pantheon";
-
-export function PantheonClientProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return <PantheonProvider client={pantheonClient}>{children}</PantheonProvider>;
-}
+export const appRouter = createTRPCRouter({
+  // ... other routers
+  articles: articlesRouter,
+});
 ```
 
-### 5. Add Provider to Layout
+### 4. Create Content Renderer Component
 
-Update `src/app/layout.tsx`:
+Create a component to render Pantheon's JSON content structure:
 
 ```typescript
-import { PantheonClientProvider } from "~/app/_components/pantheon-provider";
+import React from "react";
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html>
-      <body>
-        <PantheonClientProvider>{children}</PantheonClientProvider>
-      </body>
-    </html>
-  );
+interface ContentNode {
+  tag?: string;
+  data?: string | null;
+  children?: ContentNode[] | null;
+  style?: string[] | null;
+  attrs?: Record<string, string> | null;
 }
-```
 
-### 6. Create Articles List Page
+export function ContentRenderer({ content }: { content: string | null }) {
+  if (!content) return null;
 
-Create `src/app/articles/page.tsx`:
-
-```typescript
-"use client";
-
-import { useArticles } from "@pantheon-systems/cpub-react-sdk";
-import Link from "next/link";
-
-export default function ArticlesPage() {
-  const result = useArticles();
-  const { loading, error, data } = result;
-
-  // Extract articles from the GraphQL response
-  const articles = data?.articlesv3?.articles;
-
-  if (loading) {
-    return <div>Loading articles...</div>;
+  let parsed: { children?: ContentNode[] };
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return <div dangerouslySetInnerHTML={{ __html: content }} />;
   }
 
-  if (error) {
-    return <div>Error: {error.message}</div>;
-  }
+  const renderNode = (node: ContentNode, index: number): React.ReactNode => {
+    if (node.data && !node.tag) return node.data;
+    if (node.tag === "style") return null;
+
+    const Tag = (node.tag || "span") as keyof JSX.IntrinsicElements;
+    const styleObj: React.CSSProperties = {};
+
+    if (node.style) {
+      node.style.forEach((styleStr) => {
+        const [key, value] = styleStr.split(":");
+        if (key && value) {
+          const camelKey = key.trim().replace(/-([a-z])/g, (g) => g[1]!.toUpperCase());
+          styleObj[camelKey as keyof React.CSSProperties] = value.trim() as never;
+        }
+      });
+    }
+
+    const attrs = { ...(node.attrs || {}) };
+    if (attrs.class) {
+      attrs.className = attrs.class;
+      delete attrs.class;
+    }
+
+    const props = {
+      key: index,
+      ...attrs,
+      style: Object.keys(styleObj).length > 0 ? styleObj : undefined,
+    };
+
+    const children = node.children
+      ? node.children.map((child, i) => renderNode(child, i))
+      : node.data || null;
+
+    return React.createElement(Tag, props, children);
+  };
 
   return (
-    <div>
-      <h1>Articles</h1>
-      {!articles || articles.length === 0 ? (
-        <p>No articles found</p>
-      ) : (
-        <div>
-          {articles.map((article) => (
-            <Link key={article.id} href={`/articles/${article.id}`}>
-              <h2>{article.title}</h2>
-              {article.snippet && <p>{article.snippet}</p>}
-            </Link>
-          ))}
-        </div>
-      )}
+    <div className="prose max-w-none">
+      {parsed.children?.map((node, i) => renderNode(node, i))}
     </div>
   );
 }
 ```
 
-### 7. Create Individual Article Page
-
-Create `src/app/articles/[id]/page.tsx`:
+### 5. Use Articles in Components
 
 ```typescript
 "use client";
 
-import { useArticle } from "@pantheon-systems/cpub-react-sdk";
-import { useParams } from "next/navigation";
-import Link from "next/link";
+import { api } from "~/trpc/react";
+import { ContentRenderer } from "~/components/content-renderer";
 
-export default function ArticlePage() {
-  const params = useParams();
-  const id = params.id as string;
-  const result = useArticle(id);
-  const { loading, error, data } = result;
+export function ArticleDisplay({ slug }: { slug: string }) {
+  const { data: article, isLoading } = api.articles.getBySlug.useQuery(
+    { slug },
+    {
+      enabled: !!slug,
+      staleTime: 300000, // 5 minutes
+    }
+  );
 
-  // Extract article from the GraphQL response
-  const article = data?.article;
-
-  if (loading) {
-    return <div>Loading article...</div>;
-  }
-
-  if (error) {
-    return <div>Error: {error.message}</div>;
-  }
-
-  if (!article) {
-    return <div>Article not found</div>;
-  }
+  if (isLoading) return <div>Loading...</div>;
+  if (!article) return <div>Article not found</div>;
 
   return (
     <div>
-      <Link href="/articles">← Back to Articles</Link>
       <h1>{article.title}</h1>
-      {article.publishedDate && (
-        <p>Published: {new Date(article.publishedDate).toLocaleDateString()}</p>
-      )}
-      <div dangerouslySetInnerHTML={{ __html: article.content || "" }} />
+      <ContentRenderer content={article.content} />
     </div>
   );
 }
@@ -194,39 +235,55 @@ export default function ArticlePage() {
 
 ## Important Notes
 
-### GraphQL Response Structure
+### API Endpoint Structure
 
-The SDK hooks return raw Apollo Client results. Extract data manually:
+- **GraphQL endpoint**: `https://gql.prod.pcc.pantheon.io/sites/{collectionId}/query`
+- **Authentication header**: `PCC-TOKEN: your-token`
+- **Site ID = Collection ID**: Use your collection ID, not account ID
 
-- `useArticles()` → `data.articlesv3.articles`
-- `useArticle(id)` → `data.article`
+### Content Structure
 
-### API Endpoint
+Pantheon returns content as JSON tree structure, not HTML. Use the `ContentRenderer` component to properly parse and display it.
 
-The SDK connects to: `https://gql.prod.pcc.pantheon.io/sites/{siteId}/query`
+### Caching Strategy
 
-### Authentication
+- Server-side cache: 5 minutes for all articles
+- Client-side staleTime: 5 minutes per query
+- Prevents excessive API calls while keeping content fresh
 
-Uses `PCC-TOKEN` header for authentication.
+### Metadata Queries
 
-### Restart Dev Server
+Store custom fields in `metadata` object and query by slug:
 
-After adding environment variables, restart the dev server to load them.
+```typescript
+// In Pantheon CMS, set metadata.slug = "my-article"
+// Then query: api.articles.getBySlug({ slug: "my-article" })
+```
+
+### GraphQL Query Fields
+
+Available fields:
+- `id`, `title`, `snippet`
+- `metadata` (custom key-value pairs)
+- `resolvedContent` (JSON content structure)
+- `publishedDate`, `publishingLevel`
+- `tags[]`
 
 ## Testing
 
-1. Start dev server: `npm run dev`
-2. Visit `/articles` to see article list
-3. Click an article to view its content
+1. Restart dev server after adding env vars
+2. Check GraphQL endpoint in browser network tab
+3. Verify `PCC-TOKEN` header is sent
+4. Test with: `api.articles.getBySlug.useQuery({ slug: "test" })`
 
 ## Troubleshooting
 
-**Articles undefined**: Make sure to extract from `data.articlesv3.articles`
+**404 Not Found**: Verify you're using collection ID, not account ID
 
-**Loading stuck**: Check:
-- Environment variables are set
-- Dev server restarted after adding env vars
-- Token is valid
-- Site ID is correct
+**Content shows as JSON**: Use `ContentRenderer` component, not `dangerouslySetInnerHTML`
 
-**Network errors**: Check browser Network tab for failed requests to `gql.prod.pcc.pantheon.io`
+**Articles not found**: Check metadata.slug matches your query exactly
+
+**Class attribute warning**: `ContentRenderer` automatically converts `class` to `className`
+
+**Empty cache**: Check `publishingLevel: PRODUCTION` - unpublished articles won't appear

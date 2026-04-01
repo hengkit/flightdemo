@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
+import { env } from "~/env";
 
 // Collection ID for airlines
 const AIRLINES_COLLECTION_ID = "OwnBC7jAu8wdPC0vyQz7";
 
-// Cache for articles - refresh every 5 minutes
+// Cache for articles
 let articlesCache: Array<{
   id: string;
   title: string;
@@ -15,13 +16,12 @@ let articlesCache: Array<{
   metadata?: { slug?: string; [key: string]: unknown };
 }> | null = null;
 let cacheTimestamp = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 async function fetchAllArticles() {
   const now = Date.now();
 
   // Return cached articles if still fresh
-  if (articlesCache && (now - cacheTimestamp) < CACHE_DURATION) {
+  if (articlesCache && (now - cacheTimestamp) < env.ARTICLES_CACHE_DURATION) {
     return articlesCache;
   }
 

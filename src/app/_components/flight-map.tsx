@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
 import { useEffect, useState } from "react";
 import { api } from "~/trpc/react";
@@ -8,6 +8,7 @@ import L from "leaflet";
 import airlineData from "~/data/airlines.json";
 import airportsData from "~/data/airports.json";
 import React from "react";
+import { env } from "~/env";
 
 interface ContentNode {
   tag?: string;
@@ -418,8 +419,8 @@ function LocationControl() {
     },
     {
       enabled: nearestAirportForWeather !== null,
-      refetchInterval: 300000, // Refetch every 5 minutes
-      staleTime: 300000, // Consider data fresh for 5 minutes
+      refetchInterval: env.NEXT_PUBLIC_WEATHER_REFETCH_INTERVAL,
+      staleTime: env.NEXT_PUBLIC_WEATHER_REFETCH_INTERVAL,
     },
   );
 
@@ -583,28 +584,12 @@ function LocationControl() {
 
 // Component to display aircraft details from the API
 function AircraftDetails({
-  icao24,
+  aircraftDetails,
   onModelSelect
 }: {
-  icao24: string;
+  aircraftDetails: { title: { rendered: string }; acf: Record<string, unknown> };
   onModelSelect?: (modelName: string, typeCode: string) => void;
 }) {
-  const { data: aircraftDetails, isLoading } = api.flights.getAircraftDetails.useQuery(
-    { icao24 },
-    {
-      staleTime: 300000, // Cache for 5 minutes
-      enabled: !!icao24 && icao24.trim() !== '', // Only fetch if icao24 exists and is not empty
-    }
-  );
-
-  if (isLoading) {
-    return <p className="text-xs text-gray-500 mt-2">Loading aircraft details...</p>;
-  }
-
-  if (!aircraftDetails) {
-    return null;
-  }
-
   // Get typecode from aircraft details
   const typeCode = aircraftDetails.acf?.typecode as string | undefined;
 
@@ -635,7 +620,7 @@ function AircraftDetails({
   const validEntries = aircraftDetails.acf
     ? Object.entries(aircraftDetails.acf).filter(([key, value]) => {
         // Skip these fields
-        if (['icao24', 'country', 'registration', 'built'].includes(key.toLowerCase())) {
+        if (['icao24', 'country', 'registration', 'built', 'typecode', 'icaoaircraftclass'].includes(key.toLowerCase())) {
           return false;
         }
         const stringValue = String(value).trim();
@@ -689,7 +674,27 @@ function AircraftMarker({
   onFlightSelect,
   onModelSelect
 }: {
-  flight: { icao24: string; callsign: string | null; is_military?: boolean; aircraft_type?: string | null; registration?: string | null; origin_country: string; velocity: number | null; baro_altitude: number | null };
+  flight: {
+    icao24: string;
+    callsign: string | null;
+    is_military?: boolean;
+    aircraft_type?: string | null;
+    registration?: string | null;
+    origin_country: string;
+    velocity: number | null;
+    baro_altitude: number | null;
+    geo_altitude: number | null;
+    true_track: number | null;
+    vertical_rate: number | null;
+    on_ground: boolean;
+    squawk: string | null;
+    category: number | null;
+    position_source: number;
+    time_position: number | null;
+    last_contact: number;
+    sensors: number[] | null;
+    spi: boolean;
+  };
   position: LatLngExpression;
   rotation: number;
   airlineColor: string;
@@ -701,12 +706,12 @@ function AircraftMarker({
 }) {
   const [popupOpen, setPopupOpen] = useState(false);
 
-  // Only fetch aircraft details when popup is opened
+  // Fetch aircraft details immediately for all visible aircraft
   const { data: aircraftDetails } = api.flights.getAircraftDetails.useQuery(
     { icao24: flight.icao24 },
     {
-      staleTime: 300000, // Cache for 5 minutes
-      enabled: popupOpen && !!flight.icao24 && flight.icao24.trim() !== '',
+      staleTime: env.NEXT_PUBLIC_AIRCRAFT_DETAILS_STALE_TIME,
+      enabled: !!flight.icao24 && flight.icao24.trim() !== '',
     }
   );
 
@@ -734,16 +739,16 @@ function AircraftMarker({
       }}
     >
       <Popup>
-        <div className="text-xs space-y-0.5">
-          <p className="font-bold text-sm">
+        <div className="text-xs space-y-1">
+          <p className="font-bold">
             {flight.callsign || "Unknown Flight"}
             {flight.is_military && (
-              <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
+              <span className="ml-2 font-semibold" style={{ color: airlineColor }}>
                 ✈ MILITARY
               </span>
             )}
             {isPrivate && !flight.is_military && (
-              <span className="ml-2 text-xs font-semibold" style={{ color: airlineColor }}>
+              <span className="ml-2 font-semibold" style={{ color: airlineColor }}>
                 ✈ PRIVATE
               </span>
             )}
@@ -780,16 +785,23 @@ function AircraftMarker({
               {flight.registration}
             </p>
           )}
-          <p className="text-gray-600">{flight.origin_country}</p>
-          <div className="flex gap-3 text-gray-600">
+
+          <div className="mt-2 text-gray-600 space-y-0.5">
+            <p><strong>Origin Country:</strong> {flight.origin_country}</p>
             {flight.velocity !== null && (
-              <span>{Math.round(flight.velocity * 3.6)} km/h</span>
+              <p><strong>Velocity:</strong> {Math.round(flight.velocity)} m/s ({Math.round(flight.velocity * 3.6)} km/h)</p>
             )}
             {flight.baro_altitude !== null && (
-              <span>{Math.round(flight.baro_altitude)} m</span>
+              <p><strong>Baro Altitude:</strong> {Math.round(flight.baro_altitude)} m</p>
+            )}
+            {flight.vertical_rate !== null && (
+              <p><strong>Vertical Rate:</strong> {flight.vertical_rate.toFixed(1)} m/s</p>
             )}
           </div>
-          {popupOpen && <AircraftDetails icao24={flight.icao24} onModelSelect={onModelSelect} />}
+
+          {popupOpen && aircraftDetails && (
+            <AircraftDetails aircraftDetails={aircraftDetails} onModelSelect={onModelSelect} />
+          )}
         </div>
       </Popup>
     </Marker>
@@ -808,18 +820,18 @@ function FlightMarkers({
   onModelSelect: (modelName: string, typeCode: string) => void;
 }) {
   const { data: civilianFlights, refetch: refetchCivilian } = api.flights.getFlights.useQuery(bounds, {
-    refetchInterval: 60000, // Refetch every 1 minute
+    refetchInterval: env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL,
   });
 
   const { data: militaryFlights, refetch: refetchMilitary } = api.flights.getMilitaryFlights.useQuery(undefined, {
-    refetchInterval: 60000, // Refetch every 1 minute
+    refetchInterval: env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL,
   });
 
   useEffect(() => {
     const interval = setInterval(() => {
       void refetchCivilian();
       void refetchMilitary();
-    }, 60000);
+    }, env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL);
     return () => clearInterval(interval);
   }, [refetchCivilian, refetchMilitary]);
 
@@ -878,7 +890,7 @@ function FlightMarkers({
 
 function ShipMarkers({ bounds, enabled }: { bounds: { lamin: number; lomin: number; lamax: number; lomax: number }; enabled: boolean }) {
   const { data: ships } = api.ships.getShips.useQuery(bounds, {
-    refetchInterval: 60000, // Refetch every 1 minute
+    refetchInterval: env.NEXT_PUBLIC_SHIPS_REFETCH_INTERVAL,
   });
 
   // Don't render markers if not enabled
@@ -968,7 +980,7 @@ function SatelliteMarkers({
     },
     {
       enabled, // Only fetch when space mode is enabled
-      refetchInterval: 60000, // Refetch every 1 minute
+      refetchInterval: env.NEXT_PUBLIC_SATELLITES_REFETCH_INTERVAL,
     }
   );
 
@@ -1066,10 +1078,10 @@ function MapBoundsTracker({
         clearTimeout(timeoutId);
       }
 
-      // Set a new timeout to update bounds after 30 seconds
+      // Set a new timeout to update bounds after debounce period
       timeoutId = setTimeout(() => {
         updateBounds();
-      }, 30000);
+      }, env.NEXT_PUBLIC_MAP_BOUNDS_DEBOUNCE);
     };
 
     // Set initial bounds immediately
@@ -1205,12 +1217,13 @@ function AirlinesPanel({
     { slug: slug || "none" }, // Provide fallback to avoid empty string
     {
       enabled: shouldFetch, // Only fetch if we have a valid airline code
-      staleTime: 300000, // Cache for 5 minutes
+      staleTime: env.NEXT_PUBLIC_ARTICLES_STALE_TIME,
     }
   );
 
   return (
     <div
+      className="airlines-panel-scroll"
       style={{
         position: "absolute",
         bottom: "10px",
@@ -1222,7 +1235,7 @@ function AirlinesPanel({
         padding: "16px",
         maxWidth: "400px",
         maxHeight: "50vh",
-        overflowY: "auto",
+        overflowY: "scroll",
       }}
     >
       <div className="flex items-start justify-between mb-3">
@@ -1270,6 +1283,20 @@ function AirlinesPanel({
         )}
       </div>
       <style>{`
+        .airlines-panel-scroll::-webkit-scrollbar {
+          width: 8px;
+        }
+        .airlines-panel-scroll::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 4px;
+        }
+        .airlines-panel-scroll::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 4px;
+        }
+        .airlines-panel-scroll::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
         .airlines-panel-content img {
           max-width: 100%;
           height: auto;
@@ -1303,12 +1330,13 @@ function ModelPanel({
     { slug: slug || "none" }, // Provide fallback to avoid empty string
     {
       enabled: shouldFetch, // Only fetch if we have a valid type code
-      staleTime: 300000, // Cache for 5 minutes
+      staleTime: env.NEXT_PUBLIC_ARTICLES_STALE_TIME,
     }
   );
 
   return (
     <div
+      className="model-panel-scroll"
       style={{
         position: "absolute",
         bottom: "10px",
@@ -1320,7 +1348,7 @@ function ModelPanel({
         padding: "16px",
         maxWidth: "400px",
         maxHeight: "50vh",
-        overflowY: "auto",
+        overflowY: "scroll",
       }}
     >
       <div className="flex items-start justify-between mb-3">
@@ -1367,6 +1395,20 @@ function ModelPanel({
         )}
       </div>
       <style>{`
+        .model-panel-scroll::-webkit-scrollbar {
+          width: 8px;
+        }
+        .model-panel-scroll::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 4px;
+        }
+        .model-panel-scroll::-webkit-scrollbar-thumb {
+          background: #888;
+          border-radius: 4px;
+        }
+        .model-panel-scroll::-webkit-scrollbar-thumb:hover {
+          background: #555;
+        }
         .model-panel-content img {
           max-width: 100%;
           height: auto;
@@ -1441,12 +1483,14 @@ export function FlightMap({
       center={center}
       zoom={zoom}
       scrollWheelZoom={true}
+      zoomControl={false}
       className={className}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
       />
+      <ZoomControl position="topleft" />
       <ViewModeControl viewMode={viewMode} onViewModeChange={setViewMode} />
       <LocationControl />
       <MapBoundsTracker
