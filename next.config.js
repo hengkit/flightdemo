@@ -15,6 +15,13 @@ const config = {
     // Already checked by tsc in build process
     ignoreBuildErrors: false,
   },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Mark ws as external to prevent bundling issues
+      config.externals = [...(config.externals || []), 'ws'];
+    }
+    return config;
+  },
 };
 
 export default config;

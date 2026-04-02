@@ -194,9 +194,14 @@ let currentBounds = {
   lomax: -121.5,
 };
 
-// Start connection if API key is available
-if (getAISStreamAPIKey()) {
-  connectToAISStream(currentBounds);
+let isInitialized = false;
+
+// Lazy initialization - only connect when first query is made
+function ensureConnection() {
+  if (!isInitialized && getAISStreamAPIKey()) {
+    isInitialized = true;
+    connectToAISStream(currentBounds);
+  }
 }
 
 // Update subscription on existing WebSocket
@@ -239,6 +244,9 @@ export const shipsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ input }) => {
+      // Ensure connection is established (lazy initialization)
+      ensureConnection();
+
       // Update subscription if bounds changed significantly
       const boundsChanged =
         Math.abs(input.lamin - currentBounds.lamin) > 0.5 ||
