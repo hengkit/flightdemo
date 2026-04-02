@@ -8,7 +8,6 @@ export const env = createEnv({
    */
   server: {
     NODE_ENV: z.enum(["development", "test", "production"]),
-    ARTICLES_CACHE_DURATION: z.coerce.number().default(60000),
   },
   client: {
     NEXT_PUBLIC_PCC_TOKEN: z.string(),
@@ -30,7 +29,6 @@ export const env = createEnv({
    */
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
-    ARTICLES_CACHE_DURATION: process.env.ARTICLES_CACHE_DURATION,
     NEXT_PUBLIC_PCC_TOKEN: process.env.NEXT_PUBLIC_PCC_TOKEN,
     NEXT_PUBLIC_PCC_SITE_ID: process.env.NEXT_PUBLIC_PCC_SITE_ID,
     NEXT_PUBLIC_PCC_COLLECTION_ID: process.env.NEXT_PUBLIC_PCC_COLLECTION_ID,

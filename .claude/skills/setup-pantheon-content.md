@@ -36,7 +36,6 @@ NEXT_PUBLIC_PCC_SITE_ID="your-site-id-here"
 
 # Optional - defaults provided
 NEXT_PUBLIC_PCC_COLLECTION_ID="your-collection-id-here"
-ARTICLES_CACHE_DURATION=60000  # Server-side cache (ms)
 NEXT_PUBLIC_ARTICLES_STALE_TIME=60000  # Client-side stale time (ms)
 ```
 
@@ -49,7 +48,6 @@ import { z } from "zod";
 export const env = createEnv({
   server: {
     NODE_ENV: z.enum(["development", "test", "production"]),
-    ARTICLES_CACHE_DURATION: z.coerce.number().default(60000),
   },
   client: {
     NEXT_PUBLIC_PCC_TOKEN: z.string(),
@@ -59,7 +57,6 @@ export const env = createEnv({
   },
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
-    ARTICLES_CACHE_DURATION: process.env.ARTICLES_CACHE_DURATION,
     NEXT_PUBLIC_PCC_TOKEN: process.env.NEXT_PUBLIC_PCC_TOKEN,
     NEXT_PUBLIC_PCC_SITE_ID: process.env.NEXT_PUBLIC_PCC_SITE_ID,
     NEXT_PUBLIC_PCC_COLLECTION_ID: process.env.NEXT_PUBLIC_PCC_COLLECTION_ID,
@@ -70,38 +67,18 @@ export const env = createEnv({
 });
 ```
 
-### 3. Create tRPC Articles Router (Server-Side with Caching)
+### 3. Create tRPC Articles Router (Server-Side)
 
 Create `src/server/api/routers/articles.ts`:
 
 ```typescript
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { env } from "~/env";
 
 // Your collection ID from Pantheon
 const COLLECTION_ID = "your-collection-id";
 
-// Server-side cache
-let articlesCache: Array<{
-  id: string;
-  title: string;
-  snippet?: string;
-  content?: string;
-  tags?: string[];
-  publishedDate?: string;
-  metadata?: { slug?: string; [key: string]: unknown };
-}> | null = null;
-let cacheTimestamp = 0;
-
 async function fetchAllArticles() {
-  const now = Date.now();
-
-  // Return cached articles if still fresh
-  if (articlesCache && (now - cacheTimestamp) < env.ARTICLES_CACHE_DURATION) {
-    return articlesCache;
-  }
-
   const token = process.env.NEXT_PUBLIC_PCC_TOKEN;
 
   if (!token) {
@@ -144,8 +121,7 @@ async function fetchAllArticles() {
 
     if (!response.ok) {
       console.error(`Failed to fetch articles: ${response.status} ${response.statusText}`);
-      // Return stale cache on error
-      return articlesCache ?? [];
+      return [];
     }
 
     const result = await response.json() as {
@@ -167,20 +143,17 @@ async function fetchAllArticles() {
     const articles = result.data?.articlesv3?.articles ?? [];
 
     // Map resolvedContent to content for consistency
-    articlesCache = articles.map(article => ({
+    const mappedArticles = articles.map(article => ({
       ...article,
       content: article.resolvedContent,
     }));
 
-    cacheTimestamp = now;
+    console.log(`Fetched ${mappedArticles.length} articles from collection`);
 
-    console.log(`Cached ${articlesCache.length} articles from collection`);
-
-    return articlesCache;
+    return mappedArticles;
   } catch (error) {
     console.error("Error fetching articles:", error);
-    // Return stale cache on error
-    return articlesCache ?? [];
+    return [];
   }
 }
 
@@ -409,10 +382,10 @@ interface Article {
 export function ArticlesList() {
   const { loading, error, data } = useArticles();
 
-  // The data object may have articles nested within it
+  // Data structure: data.articlesv3.articles
   const articles = Array.isArray(data)
     ? data
-    : (data as { articles?: Article[] } | undefined)?.articles;
+    : (data as { articlesv3?: { articles?: Article[] } } | undefined)?.articlesv3?.articles;
 
   if (loading) return <div>Loading articles...</div>;
   if (error) return <div>Error: {error.message}</div>;
@@ -464,22 +437,20 @@ Pantheon returns content as a **JSON tree structure**, not HTML:
 
 ### Caching Strategy
 
-**Two-tier caching for optimal performance:**
+**Client-side caching via React Query/SDK:**
 
-1. **Server-side cache** (in-memory):
-   - Duration: `ARTICLES_CACHE_DURATION` (default: 60 seconds)
-   - Shared across all requests
-   - Returns stale cache on API errors (graceful degradation)
-
-2. **Client-side cache** (React Query):
-   - Stale time: `NEXT_PUBLIC_ARTICLES_STALE_TIME` (default: 60 seconds)
-   - Per-component cache
-   - Automatic background refetching
+- **Stale time**: `NEXT_PUBLIC_ARTICLES_STALE_TIME` (default: 60 seconds)
+- Per-component cache
+- Automatic background refetching
+- Shared cache across same query hooks
 
 **Benefits:**
-- Reduces API calls dramatically
-- Fast response times (server cache is instant)
-- Resilient to API failures (stale-while-revalidate pattern)
+- Reduces redundant API calls
+- Fast response for repeated queries
+- Automatic cache invalidation and refetching
+- No server-side state management needed
+
+**Note**: Server-side caching was removed to ensure fresh content on every page load. If you need server-side caching for high-traffic scenarios, add in-memory cache to `fetchAllArticles()` function with appropriate TTL.
 
 ### Metadata Queries
 
@@ -512,13 +483,15 @@ Available in `articlesv3` query:
 **Use React SDK (useArticles, useArticle)** when:
 - You want direct client-side access
 - Building purely client-side features
-- Don't need server-side caching
+- Simple content display use cases
+- Don't need custom data transformation
 
 **Use tRPC** when:
-- You want server-side caching
-- Need to aggregate multiple data sources
+- Need to aggregate multiple data sources server-side
 - Want type-safe server-client communication
 - Need custom business logic before returning data
+- Want to add server-side caching (requires adding cache logic)
+- Need to transform or combine Pantheon data with other APIs
 
 ## Testing
 
@@ -572,14 +545,14 @@ console.log("Articles count:", result.data?.articlesv3?.articles?.length);
 
 ### "articles.map is not a function" error
 
-**Cause**: `useArticles()` returns data in different structure than expected
+**Cause**: `useArticles()` returns data in nested structure: `data.articlesv3.articles`
 
 **Fix**:
 ```typescript
-// Handle both array and nested object
+// Correct data extraction for useArticles
 const articles = Array.isArray(data)
   ? data
-  : (data as { articles?: Article[] })?.articles;
+  : (data as { articlesv3?: { articles?: Article[] } })?.articlesv3?.articles;
 ```
 
 ### React "class" attribute warning
@@ -590,12 +563,12 @@ const articles = Array.isArray(data)
 
 ### Stale content showing
 
-**Cause**: Server cache hasn't expired
+**Cause**: Client-side React Query cache hasn't invalidated
 
 **Fix**:
-- Reduce `ARTICLES_CACHE_DURATION` for dev
-- Clear cache: restart server
-- Or modify cache to check timestamps
+- Reduce `NEXT_PUBLIC_ARTICLES_STALE_TIME` for immediate updates during dev
+- Refresh the page or component
+- Or add server-side caching with TTL if you need it
 
 ### Empty results but articles exist in Pantheon
 

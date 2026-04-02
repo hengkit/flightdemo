@@ -64,9 +64,6 @@ N2YO_API_KEY="your-api-key"
 All values in milliseconds:
 
 ```env
-# Server-side article cache duration (default: 60000 = 1 minute)
-ARTICLES_CACHE_DURATION=60000
-
 # Client-side cache durations
 NEXT_PUBLIC_ARTICLES_STALE_TIME=60000
 NEXT_PUBLIC_AIRCRAFT_DETAILS_STALE_TIME=300000
