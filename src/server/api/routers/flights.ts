@@ -63,8 +63,19 @@ export const flightsRouter = createTRPCRouter({
         return cached.data;
       }
 
-      // Use ADSB.lol /v2/all for all civilian flights (fast and reliable)
-      const url = "https://api.adsb.lol/v2/all";
+      // Calculate center point and radius for ADSB.lol /v2/point endpoint
+      const centerLat = (lamin + lamax) / 2;
+      const centerLon = (lomin + lomax) / 2;
+
+      // Calculate radius in nautical miles (convert degrees to nm, roughly 60nm per degree)
+      // Use diagonal distance to ensure full bounding box coverage
+      const latDiff = lamax - lamin;
+      const lonDiff = lomax - lomin;
+      const diagDegrees = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+      const radiusNm = Math.min(Math.ceil((diagDegrees * 60) / 2), 250); // Max 250nm per API limit
+
+      // Use ADSB.lol /v2/point endpoint (returns all aircraft in radius, civilian + military)
+      const url = `https://api.adsb.lol/v2/point/${centerLat}/${centerLon}/${radiusNm}`;
 
       try {
         const response = await fetch(url, {
@@ -72,7 +83,7 @@ export const flightsRouter = createTRPCRouter({
         });
 
         if (!response.ok) {
-          console.warn(`ADSB.lol API returned status ${response.status}`);
+          console.warn(`ADSB.lol API returned status ${response.status} for point ${centerLat},${centerLon} radius ${radiusNm}nm`);
           // Try stale cache on API error
           const cached = flightCache.get(cacheKey);
           if (cached) {
@@ -155,7 +166,7 @@ export const flightsRouter = createTRPCRouter({
 
         const civilianCount = flights.filter(f => !f.is_military).length;
         const militaryCount = flights.filter(f => f.is_military).length;
-        console.log(`ADSB.lol: Cached ${flights.length} total flights (${civilianCount} civilian, ${militaryCount} military) for bounds ${cacheKey}`);
+        console.log(`ADSB.lol /v2/point: Cached ${flights.length} total flights (${civilianCount} civilian, ${militaryCount} military) at ${centerLat.toFixed(2)},${centerLon.toFixed(2)} radius ${radiusNm}nm`);
 
         return flights;
       } catch (error) {

@@ -10,33 +10,33 @@ export const healthRouter = createTRPCRouter({
     // Run all tests in parallel to avoid sequential timeouts
     const tests = [];
 
-    // Test ADSB.lol /v2/all (civilian flights - primary data source)
+    // Test ADSB.lol /v2/point (primary data source - test with SF Bay Area, 50nm radius)
     tests.push(
       (async () => {
         try {
           const start = Date.now();
           const response = await fetch(
-            "https://api.adsb.lol/v2/all",
+            "https://api.adsb.lol/v2/point/37.7749/-122.4194/50",
             { signal: AbortSignal.timeout(5000) }
           );
           const responseTime = Date.now() - start;
 
           if (response.ok) {
             const data = await response.json() as { ac?: unknown[] };
-            results.services.adsbLolCivilian = {
+            results.services.adsbLolPoint = {
               status: "ok",
               responseTime,
               count: data.ac?.length || 0
             };
           } else {
-            results.services.adsbLolCivilian = {
+            results.services.adsbLolPoint = {
               status: "error",
               responseTime,
               error: `HTTP ${response.status}`
             };
           }
         } catch (error) {
-          results.services.adsbLolCivilian = {
+          results.services.adsbLolPoint = {
             status: "error",
             error: error instanceof Error ? error.message : String(error)
           };
