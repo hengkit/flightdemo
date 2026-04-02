@@ -174,9 +174,13 @@ export const flightsRouter = createTRPCRouter({
 
         // Add Bearer token if credentials are available
         if (manager) {
-          const token = await manager.getToken();
-          headers["Authorization"] = `Bearer ${token}`;
-          console.log("Using authenticated OpenSky API access (OAuth2)");
+          try {
+            const token = await manager.getToken();
+            headers["Authorization"] = `Bearer ${token}`;
+            console.log("Using authenticated OpenSky API access (OAuth2)");
+          } catch (tokenError) {
+            console.warn("Failed to obtain OAuth token, falling back to anonymous access:", tokenError);
+          }
         } else {
           console.log("Using anonymous OpenSky API access");
         }
@@ -187,7 +191,8 @@ export const flightsRouter = createTRPCRouter({
         });
 
         if (!response.ok) {
-          throw new Error(`OpenSky API error: ${response.status}`);
+          console.warn(`OpenSky API returned status ${response.status}`);
+          return [];
         }
 
         const data = (await response.json()) as OpenSkyResponse;
@@ -223,7 +228,8 @@ export const flightsRouter = createTRPCRouter({
         return flights;
       } catch (error) {
         console.error("Error fetching from OpenSky API:", error);
-        throw new Error("Failed to fetch flight data");
+        // Return empty array instead of throwing to prevent 503 errors
+        return [];
       }
     }),
 
@@ -234,7 +240,8 @@ export const flightsRouter = createTRPCRouter({
       });
 
       if (!response.ok) {
-        throw new Error(`ADSB.lol API error: ${response.status}`);
+        console.warn(`ADSB.lol API returned status ${response.status}`);
+        return [];
       }
 
       const data = (await response.json()) as {
@@ -313,10 +320,8 @@ export const flightsRouter = createTRPCRouter({
         });
 
         if (!response.ok) {
-          if (response.status === 404) {
-            return null;
-          }
-          throw new Error(`Aviation Weather API error: ${response.status}`);
+          console.warn(`Aviation Weather API returned status ${response.status}`);
+          return null;
         }
 
         const data = (await response.json()) as Array<{
@@ -422,10 +427,8 @@ export const flightsRouter = createTRPCRouter({
         });
 
         if (!response.ok) {
-          if (response.status === 404) {
-            return null;
-          }
-          throw new Error(`Aircraft API error: ${response.status}`);
+          console.warn(`Aircraft API returned status ${response.status} for ${icao24}`);
+          return null;
         }
 
         const data = await response.json() as Array<{
