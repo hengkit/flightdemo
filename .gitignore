@@ -38,6 +38,7 @@ yarn-error.log*
 
 # credentials
 credentials.json
+.claude/settings.local.json
 
 # vercel
 .vercel

@@ -133,7 +133,3 @@ Add airports to `src/data/airports.json` for the search feature.
 - [Next.js Documentation](https://nextjs.org/docs)
 - [tRPC Documentation](https://trpc.io/docs)
 - [React Leaflet Documentation](https://react-leaflet.js.org/)
-
-## License
-
-MIT
