@@ -153,6 +153,20 @@ function getTokenManager(): OpenSkyTokenManager | null {
   return tokenManager;
 }
 
+// Server-side cache for OpenSky data
+interface CachedFlightData {
+  data: OpenSkyState[];
+  timestamp: number;
+}
+
+const flightCache = new Map<string, CachedFlightData>();
+const CACHE_TTL = 60000; // 60 seconds - same as OpenSky update interval
+
+function getCacheKey(lamin: number, lomin: number, lamax: number, lomax: number): string {
+  // Round to 2 decimals to group similar bounding boxes
+  return `${lamin.toFixed(2)},${lomin.toFixed(2)},${lamax.toFixed(2)},${lomax.toFixed(2)}`;
+}
+
 export const flightsRouter = createTRPCRouter({
   getFlights: publicProcedure
     .input(
@@ -165,6 +179,16 @@ export const flightsRouter = createTRPCRouter({
     )
     .query(async ({ input }) => {
       const { lamin, lomin, lamax, lomax } = input;
+
+      // Check cache first
+      const cacheKey = getCacheKey(lamin, lomin, lamax, lomax);
+      const cached = flightCache.get(cacheKey);
+      const now = Date.now();
+
+      if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        console.log(`Returning cached flight data (age: ${Math.round((now - cached.timestamp) / 1000)}s)`);
+        return cached.data;
+      }
 
       const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
 
@@ -187,7 +211,7 @@ export const flightsRouter = createTRPCRouter({
 
         const response = await fetch(url, {
           headers,
-          signal: AbortSignal.timeout(15000), // 15 second timeout
+          signal: AbortSignal.timeout(20000), // 20 second timeout, with cache fallback
         });
 
         if (!response.ok) {
@@ -225,10 +249,28 @@ export const flightsRouter = createTRPCRouter({
             category: state[17],
           }));
 
+        // Cache the successful response
+        flightCache.set(cacheKey, {
+          data: flights,
+          timestamp: Date.now(),
+        });
+
+        console.log(`Cached ${flights.length} flights for bounds ${cacheKey}`);
+
         return flights;
       } catch (error) {
         console.error("Error fetching from OpenSky API:", error);
-        // Return empty array instead of throwing to prevent 503 errors
+
+        // Try to return stale cached data as fallback
+        const cached = flightCache.get(cacheKey);
+        if (cached) {
+          const age = Math.round((Date.now() - cached.timestamp) / 1000);
+          console.log(`OpenSky failed, returning stale cached data (age: ${age}s, ${cached.data.length} flights)`);
+          return cached.data;
+        }
+
+        // Return empty array only if no cache available
+        console.warn("OpenSky failed and no cached data available");
         return [];
       }
     }),
