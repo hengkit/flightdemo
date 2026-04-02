@@ -620,7 +620,7 @@ function AircraftDetails({
   const validEntries = aircraftDetails.acf
     ? Object.entries(aircraftDetails.acf).filter(([key, value]) => {
         // Skip these fields
-        if (['icao24', 'country', 'registration', 'built', 'typecode', 'icaoaircraftclass'].includes(key.toLowerCase())) {
+        if (['icao24', 'registration', 'built', 'typecode', 'icaoaircraftclass'].includes(key.toLowerCase())) {
           return false;
         }
         const stringValue = String(value).trim();
@@ -787,7 +787,6 @@ function AircraftMarker({
           )}
 
           <div className="mt-2 text-gray-600 space-y-0.5">
-            <p><strong>Origin Country:</strong> {flight.origin_country}</p>
             {flight.velocity !== null && (
               <p><strong>Velocity:</strong> {Math.round(flight.velocity)} m/s ({Math.round(flight.velocity * 3.6)} km/h)</p>
             )}

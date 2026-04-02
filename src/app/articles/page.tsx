@@ -14,9 +14,12 @@ export default function ArticlesPage() {
   const { loading, error, data } = result;
 
   // Extract articles from the GraphQL response
-  const articles = (data as unknown as Article[] | undefined);
+  // The data object may have articles nested within it
+  const articles = Array.isArray(data)
+    ? data
+    : (data as { articles?: Article[] } | undefined)?.articles;
 
-  console.log("Articles result:", { articles, loading, error, data });
+  console.log("Articles result:", { articles, loading, error, data, isArray: Array.isArray(data) });
 
   if (loading) {
     return (
