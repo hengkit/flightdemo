@@ -190,63 +190,87 @@ export const flightsRouter = createTRPCRouter({
         return cached.data;
       }
 
-      const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
+      // Use ADSB.lol /v2/all for all civilian flights (fast and reliable)
+      const url = "https://api.adsb.lol/v2/all";
 
       try {
-        const headers: HeadersInit = {};
-        const manager = getTokenManager();
-
-        // Add Bearer token if credentials are available
-        if (manager) {
-          try {
-            const token = await manager.getToken();
-            headers["Authorization"] = `Bearer ${token}`;
-            console.log("Using authenticated OpenSky API access (OAuth2)");
-          } catch (tokenError) {
-            console.warn("Failed to obtain OAuth token, falling back to anonymous access:", tokenError);
-          }
-        } else {
-          console.log("Using anonymous OpenSky API access");
-        }
-
         const response = await fetch(url, {
-          headers,
-          signal: AbortSignal.timeout(20000), // 20 second timeout, with cache fallback
+          signal: AbortSignal.timeout(10000), // 10 second timeout
         });
 
         if (!response.ok) {
-          console.warn(`OpenSky API returned status ${response.status}`);
+          console.warn(`ADSB.lol API returned status ${response.status}`);
+          // Try stale cache on API error
+          const cached = flightCache.get(cacheKey);
+          if (cached) {
+            const age = Math.round((Date.now() - cached.timestamp) / 1000);
+            console.log(`ADSB.lol failed, returning stale cached data (age: ${age}s, ${cached.data.length} flights)`);
+            return cached.data;
+          }
           return [];
         }
 
-        const data = (await response.json()) as OpenSkyResponse;
+        const data = (await response.json()) as {
+          ac: Array<{
+            hex: string;
+            flight?: string;
+            r?: string; // registration
+            t?: string; // aircraft type
+            lat?: number;
+            lon?: number;
+            alt_baro?: number;
+            alt_geom?: number;
+            gs?: number;
+            track?: number;
+            squawk?: string;
+            baro_rate?: number;
+            dbFlags?: number; // database flags for military detection
+          }>;
+        };
 
-        if (!data.states) {
+        if (!data.ac) {
           return [];
         }
 
-        // Transform the array format to objects
-        const flights: OpenSkyState[] = data.states
-          .filter((state) => state[5] !== null && state[6] !== null) // Filter out flights without position
-          .map((state) => ({
-            icao24: state[0],
-            callsign: state[1]?.trim() || null,
-            origin_country: state[2],
-            time_position: state[3],
-            last_contact: state[4],
-            longitude: state[5],
-            latitude: state[6],
-            baro_altitude: state[7],
-            on_ground: state[8],
-            velocity: state[9],
-            true_track: state[10],
-            vertical_rate: state[11],
-            sensors: state[12],
-            geo_altitude: state[13],
-            squawk: state[14],
-            spi: state[15],
-            position_source: state[16],
-            category: state[17],
+        // Transform ADSB.lol format to match OpenSky format
+        // Filter by bounding box and exclude military aircraft (handled by getMilitaryFlights)
+        const flights: OpenSkyState[] = data.ac
+          .filter((ac) => {
+            // Must have position
+            if (ac.lat === undefined || ac.lon === undefined) return false;
+
+            // Filter by bounding box
+            if (ac.lat < lamin || ac.lat > lamax) return false;
+            if (ac.lon < lomin || ac.lon > lomax) return false;
+
+            // Exclude military aircraft (they're fetched separately)
+            // dbFlags bit 1 indicates military in ADSB.lol
+            if (ac.dbFlags && (ac.dbFlags & 1)) return false;
+
+            return true;
+          })
+          .map((ac) => ({
+            icao24: ac.hex,
+            callsign: ac.flight?.trim() || null,
+            origin_country: "Unknown", // ADSB.lol doesn't provide country
+            time_position: null,
+            last_contact: Date.now() / 1000,
+            longitude: ac.lon!,
+            latitude: ac.lat!,
+            baro_altitude: ac.alt_baro ?? null,
+            on_ground: (ac.alt_baro ?? 0) < 100,
+            velocity: ac.gs ?? null,
+            true_track: ac.track ?? null,
+            vertical_rate: ac.baro_rate ?? null,
+            sensors: null,
+            geo_altitude: ac.alt_geom ?? null,
+            squawk: ac.squawk ?? null,
+            spi: false,
+            position_source: 0,
+            category: null,
+            is_military: false,
+            aircraft_type: ac.t ?? null,
+            registration: ac.r ?? null,
           }));
 
         // Cache the successful response
@@ -255,22 +279,22 @@ export const flightsRouter = createTRPCRouter({
           timestamp: Date.now(),
         });
 
-        console.log(`Cached ${flights.length} flights for bounds ${cacheKey}`);
+        console.log(`ADSB.lol: Cached ${flights.length} civilian flights for bounds ${cacheKey}`);
 
         return flights;
       } catch (error) {
-        console.error("Error fetching from OpenSky API:", error);
+        console.error("Error fetching from ADSB.lol API:", error);
 
         // Try to return stale cached data as fallback
         const cached = flightCache.get(cacheKey);
         if (cached) {
           const age = Math.round((Date.now() - cached.timestamp) / 1000);
-          console.log(`OpenSky failed, returning stale cached data (age: ${age}s, ${cached.data.length} flights)`);
+          console.log(`ADSB.lol failed, returning stale cached data (age: ${age}s, ${cached.data.length} flights)`);
           return cached.data;
         }
 
         // Return empty array only if no cache available
-        console.warn("OpenSky failed and no cached data available");
+        console.warn("ADSB.lol failed and no cached data available");
         return [];
       }
     }),
