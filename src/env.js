@@ -15,11 +15,11 @@ export const env = createEnv({
     NEXT_PUBLIC_PCC_COLLECTION_ID: z.string().optional(),
     NEXT_PUBLIC_ARTICLES_STALE_TIME: z.coerce.number().default(60000),
     NEXT_PUBLIC_AIRCRAFT_DETAILS_STALE_TIME: z.coerce.number().default(300000),
-    NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL: z.coerce.number().default(60000),
+    NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL: z.coerce.number().default(10000),
     NEXT_PUBLIC_WEATHER_REFETCH_INTERVAL: z.coerce.number().default(300000),
     NEXT_PUBLIC_SHIPS_REFETCH_INTERVAL: z.coerce.number().default(60000),
     NEXT_PUBLIC_SATELLITES_REFETCH_INTERVAL: z.coerce.number().default(60000),
-    NEXT_PUBLIC_MAP_BOUNDS_DEBOUNCE: z.coerce.number().default(30000),
+    NEXT_PUBLIC_MAP_BOUNDS_DEBOUNCE: z.coerce.number().default(10000),
   },
 
 

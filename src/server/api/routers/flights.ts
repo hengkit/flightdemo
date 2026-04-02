@@ -33,7 +33,7 @@ interface CachedFlightData {
 }
 
 const flightCache = new Map<string, CachedFlightData>();
-const CACHE_TTL = 60000; // 60 seconds cache
+const CACHE_TTL = 10000; // 10 seconds cache
 
 function getCacheKey(lamin: number, lomin: number, lamax: number, lomax: number): string {
   // Round to 2 decimals to group similar bounding boxes
