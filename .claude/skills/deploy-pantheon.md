@@ -39,44 +39,11 @@ Ensure these are set in Pantheon's environment configuration:
 
 ### Optional (based on features used):
 - Check `.env.example` for all environment variables your app requires
-- API keys for external services:
-  - `AISSTREAM_API_KEY` - For ship tracking via WebSocket
-  - `N2YO_API_KEY` - For satellite tracking
-  - `NEXT_PUBLIC_PCC_TOKEN` - Pantheon Content Publisher token
-  - `NEXT_PUBLIC_PCC_SITE_ID` - Pantheon site ID
-- Refresh interval configurations (all have defaults)
-
-## API Dependencies
-
-The app integrates with these external services:
-
-### No Authentication Required
-- **ADSB.lol** (`https://api.adsb.lol/v2/point/{lat}/{lon}/{radius}`)
-  - Real-time aircraft positions (civilian + military)
-  - Max 250nm radius per query
-  - Server-side cached for 60 seconds
-  
-- **Aviation Weather Center** (`https://aviationweather.gov/api/data/metar`)
-  - METAR weather observations
-  - Public API, no key required
-
-- **WordPress API** (`https://live-flightdemo-api.pantheonsite.io/wp-json/wp/v2/aircraft`)
-  - Aircraft metadata lookup by ICAO24
-
-### Authentication Required
-- **Pantheon Content Publisher** (`https://gql.prod.pcc.pantheon.io`)
-  - Airline information via GraphQL
-  - Requires `NEXT_PUBLIC_PCC_TOKEN`
-  - No server-side caching (fetches fresh each time)
-
-- **AISStream** (`wss://stream.aisstream.io/v0/stream`)
-  - Ship tracking via WebSocket
-  - Requires `AISSTREAM_API_KEY`
-  - Optional feature
-
-- **N2YO** (satellite tracking)
-  - Requires `N2YO_API_KEY`
-  - Optional feature
+- API keys for external services
+- OAuth credentials for authenticated APIs
+- Database connection strings
+- Feature flags or configuration values
+- Refresh interval configurations
 
 ## Deployment Steps
 
@@ -210,27 +177,21 @@ This occurs when tRPC batches hundreds of queries into a single GET request:
   ```
 - This automatically switches to POST requests for large batches
 
-### Runtime Error: No Flight Data / 404 from ADSB.lol
+### Runtime Error: 404 from External API
 
-**Symptom**: No flight markers showing on map, console shows 404 from ADSB.lol API
+**Symptom**: Console shows 404 errors from external API endpoints
 
-**Cause**: Using wrong ADSB.lol endpoint (e.g., `/v2/all` which doesn't exist)
+**Common causes:**
+1. **Wrong API endpoint URL** - Endpoint path may have changed or be incorrect
+2. **API version mismatch** - Using deprecated or non-existent API version
+3. **Missing route parameters** - Required path parameters not provided
 
 **Fix:**
-- Use the correct endpoint: `/v2/point/{lat}/{lon}/{radius}`
-- Endpoint is already correct in `src/server/api/routers/flights.ts`
-- Verify the endpoint in code:
-  ```typescript
-  const url = `https://api.adsb.lol/v2/point/${centerLat}/${centerLon}/${radiusNm}`;
-  ```
-- Maximum radius is 250 nautical miles
-- The endpoint returns both civilian and military aircraft
-
-**Available ADSB.lol endpoints:**
-- `/v2/point/{lat}/{lon}/{radius}` - Aircraft within radius ✅
-- `/v2/mil` - Military aircraft only
-- `/v2/hex/{hex}` - Specific aircraft by hex code
-- `/v2/all` - ❌ Does NOT exist
+- Check the API documentation for correct endpoint paths
+- Verify API version in use
+- Check for typos in endpoint URLs
+- Test the endpoint directly with curl or Postman
+- Review API changelog for breaking changes
 
 ### Runtime Error: 503 Service Unavailable
 
@@ -303,24 +264,23 @@ If deployment fails:
 | `b.mask is not a function` | WebSocket library bundling | Externalize 'ws' in webpack config |
 | `414 URI Too Long` | Too many batched queries | Add `maxURLLength: 2000` to tRPC |
 | `503 Service Unavailable` | API timeouts or errors | Add timeouts, return empty on error |
-| `404` from ADSB.lol | Wrong API endpoint | Use `/v2/point/{lat}/{lon}/{radius}` |
-| No flight markers | ADSB.lol endpoint error | Check endpoint in flights router |
-| `articles.map is not a function` | Wrong data structure | Extract `data.articlesv3.articles` |
+| `404` from external API | Wrong API endpoint | Verify endpoint URL in API docs |
+| `X.map is not a function` | Wrong data structure | Check API response structure |
 | Build succeeds but runtime fails | Environment variables | Check Pantheon dashboard env vars |
 
 ## Performance Considerations
 
 - **API caching**: 
-  - Client-side caching via React Query (stale time configured per query)
-  - No server-side caching for Pantheon Content Publisher articles (fetches fresh on every request)
-  - Flight data cached server-side for 60 seconds
-  - Configure `NEXT_PUBLIC_*_STALE_TIME` and `NEXT_PUBLIC_*_REFETCH_INTERVAL` as needed
+  - Client-side caching via React Query (configure stale time per query)
+  - Server-side caching for frequently accessed data (add in-memory cache with TTL)
+  - Configure refresh intervals via environment variables
+  - Balance fresh data vs API call reduction
 - **Rate limits**: 
-  - ADSB.lol: No authentication required, check for rate limiting if experiencing issues
-  - AISStream: Requires API key, check WebSocket connection stability
-  - N2YO: Requires API key for satellite data
-  - Pantheon Content Publisher: No rate limits observed, but fetches on every request
-  - Aviation Weather: Public API, no authentication
+  - Check rate limits for all external APIs your app uses
+  - Implement caching to reduce API calls
+  - Use authenticated access for higher limits when available
+  - Monitor API usage in production
+  - Add exponential backoff for rate-limited requests
 - **Recommended timeout values**:
   - OAuth/authentication tokens: 10s
   - Data fetching APIs: 15s
