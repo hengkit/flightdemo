@@ -587,7 +587,7 @@ function AircraftDetails({
   aircraftDetails,
   onModelSelect
 }: {
-  aircraftDetails: { title: { rendered: string }; acf: Record<string, unknown> };
+  aircraftDetails: { title: string; acf: Record<string, unknown> };
   onModelSelect?: (modelName: string, typeCode: string) => void;
 }) {
   // Get typecode from aircraft details

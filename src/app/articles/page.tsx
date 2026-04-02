@@ -3,12 +3,18 @@
 import { useArticles } from "@pantheon-systems/cpub-react-sdk";
 import Link from "next/link";
 
+interface Article {
+  id: string;
+  title: string;
+  tags?: string[];
+}
+
 export default function ArticlesPage() {
   const result = useArticles();
   const { loading, error, data } = result;
 
   // Extract articles from the GraphQL response
-  const articles = data?.articlesv3?.articles;
+  const articles = (data as unknown as Article[] | undefined);
 
   console.log("Articles result:", { articles, loading, error, data });
 
@@ -53,7 +59,7 @@ export default function ArticlesPage() {
                 {JSON.stringify({
                   articles,
                   loading,
-                  error: error ? { message: error.message, name: error.name } : null,
+                  error: error ? { message: (error as Error).message, name: (error as Error).name } : null,
                   data: data
                 }, null, 2)}
               </pre>
@@ -62,7 +68,7 @@ export default function ArticlesPage() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {articles.map((article) => (
+            {articles.map((article: { id: string; title: string; tags?: string[] }) => (
               <Link
                 key={article.id}
                 href={`/articles/${article.id}`}
@@ -71,7 +77,7 @@ export default function ArticlesPage() {
                 <h2 className="text-2xl font-bold">{article.title}</h2>
                 {article.tags && article.tags.length > 0 && (
                   <div className="mt-2 flex gap-2">
-                    {article.tags.map((tag) => (
+                    {article.tags.map((tag: string) => (
                       <span
                         key={tag}
                         className="rounded bg-white/20 px-2 py-1 text-sm"

@@ -83,6 +83,16 @@ function ContentRenderer({ content }: { content: string | null | undefined }) {
   );
 }
 
+interface ArticleWithContent {
+  id: string;
+  title: string;
+  content?: string;
+  body?: string;
+  tags?: string[];
+  publishedDate?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export default function ArticlePage() {
   const params = useParams();
   const id = params.id as string;
@@ -90,7 +100,7 @@ export default function ArticlePage() {
   const { loading, error, data } = result;
 
   // Extract article from the GraphQL response
-  const article = data?.article;
+  const article = data?.article as ArticleWithContent | undefined;
 
   if (loading) {
     return (

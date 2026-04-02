@@ -21,6 +21,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "preserve",
+    "jsxImportSource": "react",
     "plugins": [{ "name": "next" }],
     "incremental": true,
 
