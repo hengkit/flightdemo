@@ -47,7 +47,9 @@ export const satellitesRouter = createTRPCRouter({
       try {
         const url = `https://api.n2yo.com/rest/v1/satellite/above/${input.latitude}/${input.longitude}/${input.altitude}/${input.searchRadius}/${input.categoryId}&apiKey=${apiKey}`;
 
-        const response = await fetch(url);
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(15000), // 15 second timeout
+        });
 
         if (!response.ok) {
           console.error(`N2YO API error: ${response.status} ${response.statusText}`);

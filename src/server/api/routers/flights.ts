@@ -90,6 +90,7 @@ class OpenSkyTokenManager {
         client_id: this.clientId,
         client_secret: this.clientSecret,
       }),
+      signal: AbortSignal.timeout(10000), // 10 second timeout
     });
 
     if (!response.ok) {
@@ -180,7 +181,10 @@ export const flightsRouter = createTRPCRouter({
           console.log("Using anonymous OpenSky API access");
         }
 
-        const response = await fetch(url, { headers });
+        const response = await fetch(url, {
+          headers,
+          signal: AbortSignal.timeout(15000), // 15 second timeout
+        });
 
         if (!response.ok) {
           throw new Error(`OpenSky API error: ${response.status}`);
@@ -225,7 +229,9 @@ export const flightsRouter = createTRPCRouter({
 
   getMilitaryFlights: publicProcedure.query(async () => {
     try {
-      const response = await fetch("https://api.adsb.lol/v2/mil");
+      const response = await fetch("https://api.adsb.lol/v2/mil", {
+        signal: AbortSignal.timeout(15000), // 15 second timeout
+      });
 
       if (!response.ok) {
         throw new Error(`ADSB.lol API error: ${response.status}`);
@@ -303,6 +309,7 @@ export const flightsRouter = createTRPCRouter({
           headers: {
             "User-Agent": "FlightTracker (contact@example.com)",
           },
+          signal: AbortSignal.timeout(10000), // 10 second timeout
         });
 
         if (!response.ok) {
@@ -410,7 +417,9 @@ export const flightsRouter = createTRPCRouter({
 
       try {
         const url = `https://live-flightdemo-api.pantheonsite.io/wp-json/wp/v2/aircraft?slug=${icao24}&_fields=title,acf`;
-        const response = await fetch(url);
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
 
         if (!response.ok) {
           if (response.status === 404) {
