@@ -66,34 +66,28 @@ Environment variables are validated using `@t3-oss/env-nextjs` with Zod schemas 
 
 ### Leaflet Maps & Flight Tracking
 
-The project includes Leaflet for interactive maps using `react-leaflet` and integrates with the OpenSky Network API for real-time flight tracking.
+The project includes Leaflet for interactive maps using `react-leaflet` and integrates with ADSB.lol for real-time flight tracking.
 
 **Components**:
 - `DynamicMap` - Basic map component from `~/app/_components/dynamic-map`
 - `DynamicFlightMap` - Flight tracking map from `~/app/_components/dynamic-flight-map`
 - Both components are dynamically imported with SSR disabled to avoid window/document issues
 
-**OpenSky API Integration**:
+**ADSB.lol Flight Tracking Integration**:
 - tRPC endpoint: `api.flights.getFlights` in `src/server/api/routers/flights.ts`
-- Fetches real-time civilian flight data with bounding box filtering
-- **OAuth2 authentication** (optional, for higher rate limits):
-  - Via environment variables: `OPENSKY_CLIENT_ID` and `OPENSKY_CLIENT_SECRET`
-  - Or via `credentials.json` file in project root (clientId/clientSecret)
-  - Falls back to anonymous access if neither is provided
-  - Authenticated access provides higher rate limits (4000+ credits/day, 5-second resolution)
+- Fetches real-time flight data (civilian + military) from https://api.adsb.lol/v2/all
+- **No authentication required** - free and open access
+- Server-side bounding box filtering for the visible map region
+- Military aircraft automatically flagged via `is_military` field
+- Military flights displayed in olive/military green color (#4a5d23)
+- Civilian flights displayed with airline-specific colors
+- Includes aircraft type, registration, and callsign information
 - Data refreshes every 60 seconds
+- **Server-side caching**: 60-second cache for instant responses
 - **Dynamic bounds**: Flight data is automatically fetched for the currently visible map region
   - Updates 10 seconds after you stop panning or zooming the map (debounced)
   - Uses Leaflet's `getBounds()` to get the viewport coordinates
   - Prevents excessive API calls while actively navigating the map
-
-**ADSB.lol Military Flight Integration**:
-- tRPC endpoint: `api.flights.getMilitaryFlights` in `src/server/api/routers/flights.ts`
-- Fetches global military aircraft data from https://api.adsb.lol/v2/mil
-- Military flights displayed in olive/military green color (#4a5d23)
-- Includes aircraft type and registration information
-- Data refreshes every 60 seconds
-- No authentication required
 
 **AISStream Ship Tracking Integration**:
 - tRPC endpoint: `api.ships.getShips` in `src/server/api/routers/ships.ts`

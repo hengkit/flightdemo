@@ -4,7 +4,7 @@ A real-time tracking application built with the [T3 Stack](https://create.t3.gg/
 
 ## Features
 
-- **Live Aircraft Tracking**: Real-time civilian and military aircraft positions using OpenSky Network and ADSB.lol APIs
+- **Live Aircraft Tracking**: Real-time civilian and military aircraft positions using ADSB.lol API
 - **Ship Tracking**: AIS vessel data via WebSocket connection to AISStream
 - **Satellite Tracking**: Overhead satellite positions using N2YO API
 - **Airline Information**: Rich airline and aircraft model details from Pantheon Content Publisher CMS
@@ -50,11 +50,6 @@ NEXT_PUBLIC_PCC_SITE_ID="your-site-id-here"
 #### Optional (for enhanced features)
 
 ```env
-# OpenSky Network API - For higher rate limits (4000+ credits/day)
-# Sign up at https://opensky-network.org/
-OPENSKY_CLIENT_ID="your-client-id"
-OPENSKY_CLIENT_SECRET="your-client-secret"
-
 # AISStream - For ship tracking
 # Get free API key at https://aisstream.io
 AISSTREAM_API_KEY="your-api-key"
@@ -119,8 +114,7 @@ Add airports to `src/data/airports.json` for the search feature.
 
 ## API Data Sources
 
-- **OpenSky Network**: Civilian aircraft positions (free tier available)
-- **ADSB.lol**: Military aircraft data (no API key required)
+- **ADSB.lol**: Real-time aircraft positions (civilian + military, no API key required)
 - **AISStream**: Real-time ship positions via WebSocket
 - **N2YO**: Satellite tracking data
 - **Aviation Weather Center**: METAR weather observations

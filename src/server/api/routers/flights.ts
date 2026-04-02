@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import fs from "fs";
-import path from "path";
 
-interface OpenSkyState {
+// Flight state interface (compatible with ADSB.lol data)
+interface FlightState {
   icao24: string;
   callsign: string | null;
   origin_country: string;
@@ -27,140 +26,14 @@ interface OpenSkyState {
   registration?: string | null;
 }
 
-interface OpenSkyResponse {
-  time: number;
-  states: Array<
-    [
-      string, // icao24
-      string | null, // callsign
-      string, // origin_country
-      number | null, // time_position
-      number, // last_contact
-      number | null, // longitude
-      number | null, // latitude
-      number | null, // baro_altitude
-      boolean, // on_ground
-      number | null, // velocity
-      number | null, // true_track
-      number | null, // vertical_rate
-      number[] | null, // sensors
-      number | null, // geo_altitude
-      string | null, // squawk
-      boolean, // spi
-      number, // position_source
-      number | null, // category
-    ]
-  > | null;
-}
-
-interface TokenResponse {
-  access_token: string;
-  expires_in: number;
-  token_type: string;
-}
-
-// Token manager for OAuth2 Client Credentials Flow
-class OpenSkyTokenManager {
-  private accessToken: string | null = null;
-  private tokenExpiry: number = 0;
-  private readonly TOKEN_ENDPOINT =
-    "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token";
-  private readonly REFRESH_MARGIN_MS = 30000; // Refresh 30 seconds before expiry
-
-  constructor(
-    private clientId: string,
-    private clientSecret: string,
-  ) {}
-
-  async getToken(): Promise<string> {
-    // Check if we have a valid token
-    if (this.accessToken && Date.now() < this.tokenExpiry - this.REFRESH_MARGIN_MS) {
-      return this.accessToken;
-    }
-
-    // Request a new token
-    console.log("Requesting new OpenSky access token...");
-    const response = await fetch(this.TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-      }),
-      signal: AbortSignal.timeout(10000), // 10 second timeout
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Failed to obtain access token: ${response.status} - ${errorText}`,
-      );
-    }
-
-    const data = (await response.json()) as TokenResponse;
-    this.accessToken = data.access_token;
-    // expires_in is in seconds, convert to milliseconds
-    this.tokenExpiry = Date.now() + data.expires_in * 1000;
-
-    console.log(
-      `Access token obtained, expires in ${data.expires_in} seconds`,
-    );
-    return this.accessToken;
-  }
-}
-
-// Read credentials from environment variables or file
-function getOpenSkyCredentials() {
-  // First, try to read from environment variables
-  if (process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET) {
-    return {
-      clientId: process.env.OPENSKY_CLIENT_ID,
-      clientSecret: process.env.OPENSKY_CLIENT_SECRET,
-    };
-  }
-
-  // Fall back to credentials.json file
-  try {
-    const credentialsPath = path.join(process.cwd(), "credentials.json");
-    const credentialsFile = fs.readFileSync(credentialsPath, "utf-8");
-    const credentials = JSON.parse(credentialsFile) as {
-      clientId: string;
-      clientSecret: string;
-    };
-    return credentials;
-  } catch (error) {
-    console.warn("Could not read credentials from environment variables or credentials.json, using anonymous access");
-    return null;
-  }
-}
-
-// Singleton token manager instance
-let tokenManager: OpenSkyTokenManager | null = null;
-
-function getTokenManager(): OpenSkyTokenManager | null {
-  if (!tokenManager) {
-    const credentials = getOpenSkyCredentials();
-    if (credentials) {
-      tokenManager = new OpenSkyTokenManager(
-        credentials.clientId,
-        credentials.clientSecret,
-      );
-    }
-  }
-  return tokenManager;
-}
-
-// Server-side cache for OpenSky data
+// Server-side cache for flight data
 interface CachedFlightData {
-  data: OpenSkyState[];
+  data: FlightState[];
   timestamp: number;
 }
 
 const flightCache = new Map<string, CachedFlightData>();
-const CACHE_TTL = 60000; // 60 seconds - same as OpenSky update interval
+const CACHE_TTL = 60000; // 60 seconds cache
 
 function getCacheKey(lamin: number, lomin: number, lamax: number, lomax: number): string {
   // Round to 2 decimals to group similar bounding boxes
@@ -232,9 +105,9 @@ export const flightsRouter = createTRPCRouter({
           return [];
         }
 
-        // Transform ADSB.lol format to match OpenSky format
+        // Transform ADSB.lol format to FlightState interface
         // Filter by bounding box and include both civilian and military aircraft
-        const flights: OpenSkyState[] = data.ac
+        const flights: FlightState[] = data.ac
           .filter((ac) => {
             // Must have position
             if (ac.lat === undefined || ac.lon === undefined) return false;
