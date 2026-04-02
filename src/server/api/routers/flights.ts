@@ -233,7 +233,7 @@ export const flightsRouter = createTRPCRouter({
         }
 
         // Transform ADSB.lol format to match OpenSky format
-        // Filter by bounding box and exclude military aircraft (handled by getMilitaryFlights)
+        // Filter by bounding box and include both civilian and military aircraft
         const flights: OpenSkyState[] = data.ac
           .filter((ac) => {
             // Must have position
@@ -243,35 +243,36 @@ export const flightsRouter = createTRPCRouter({
             if (ac.lat < lamin || ac.lat > lamax) return false;
             if (ac.lon < lomin || ac.lon > lomax) return false;
 
-            // Exclude military aircraft (they're fetched separately)
-            // dbFlags bit 1 indicates military in ADSB.lol
-            if (ac.dbFlags && (ac.dbFlags & 1)) return false;
-
             return true;
           })
-          .map((ac) => ({
-            icao24: ac.hex,
-            callsign: ac.flight?.trim() || null,
-            origin_country: "Unknown", // ADSB.lol doesn't provide country
-            time_position: null,
-            last_contact: Date.now() / 1000,
-            longitude: ac.lon!,
-            latitude: ac.lat!,
-            baro_altitude: ac.alt_baro ?? null,
-            on_ground: (ac.alt_baro ?? 0) < 100,
-            velocity: ac.gs ?? null,
-            true_track: ac.track ?? null,
-            vertical_rate: ac.baro_rate ?? null,
-            sensors: null,
-            geo_altitude: ac.alt_geom ?? null,
-            squawk: ac.squawk ?? null,
-            spi: false,
-            position_source: 0,
-            category: null,
-            is_military: false,
-            aircraft_type: ac.t ?? null,
-            registration: ac.r ?? null,
-          }));
+          .map((ac) => {
+            // Check if military: dbFlags bit 1 indicates military in ADSB.lol
+            const isMilitary = !!(ac.dbFlags && (ac.dbFlags & 1));
+
+            return {
+              icao24: ac.hex,
+              callsign: ac.flight?.trim() || null,
+              origin_country: isMilitary ? "Military" : "Unknown",
+              time_position: null,
+              last_contact: Date.now() / 1000,
+              longitude: ac.lon!,
+              latitude: ac.lat!,
+              baro_altitude: ac.alt_baro ?? null,
+              on_ground: (ac.alt_baro ?? 0) < 100,
+              velocity: ac.gs ?? null,
+              true_track: ac.track ?? null,
+              vertical_rate: ac.baro_rate ?? null,
+              sensors: null,
+              geo_altitude: ac.alt_geom ?? null,
+              squawk: ac.squawk ?? null,
+              spi: false,
+              position_source: 0,
+              category: null,
+              is_military: isMilitary,
+              aircraft_type: ac.t ?? null,
+              registration: ac.r ?? null,
+            };
+          });
 
         // Cache the successful response
         flightCache.set(cacheKey, {
@@ -279,7 +280,9 @@ export const flightsRouter = createTRPCRouter({
           timestamp: Date.now(),
         });
 
-        console.log(`ADSB.lol: Cached ${flights.length} civilian flights for bounds ${cacheKey}`);
+        const civilianCount = flights.filter(f => !f.is_military).length;
+        const militaryCount = flights.filter(f => f.is_military).length;
+        console.log(`ADSB.lol: Cached ${flights.length} total flights (${civilianCount} civilian, ${militaryCount} military) for bounds ${cacheKey}`);
 
         return flights;
       } catch (error) {
@@ -299,71 +302,11 @@ export const flightsRouter = createTRPCRouter({
       }
     }),
 
+  // DEPRECATED: Military flights are now included in getFlights response
+  // Kept for backwards compatibility, returns empty array
   getMilitaryFlights: publicProcedure.query(async () => {
-    try {
-      const response = await fetch("https://api.adsb.lol/v2/mil", {
-        signal: AbortSignal.timeout(15000), // 15 second timeout
-      });
-
-      if (!response.ok) {
-        console.warn(`ADSB.lol API returned status ${response.status}`);
-        return [];
-      }
-
-      const data = (await response.json()) as {
-        ac: Array<{
-          hex: string;
-          flight?: string;
-          r?: string; // registration
-          t?: string; // aircraft type
-          lat?: number;
-          lon?: number;
-          alt_baro?: number;
-          alt_geom?: number;
-          gs?: number;
-          track?: number;
-          squawk?: string;
-          baro_rate?: number;
-        }>;
-      };
-
-      if (!data.ac) {
-        return [];
-      }
-
-      // Transform ADSB.lol format to match OpenSky format
-      const militaryFlights: OpenSkyState[] = data.ac
-        .filter((ac) => ac.lat !== undefined && ac.lon !== undefined)
-        .map((ac) => ({
-          icao24: ac.hex,
-          callsign: ac.flight?.trim() || null,
-          origin_country: "Military", // ADSB.lol doesn't provide country
-          time_position: null,
-          last_contact: Date.now() / 1000,
-          longitude: ac.lon!,
-          latitude: ac.lat!,
-          baro_altitude: ac.alt_baro ?? null,
-          on_ground: (ac.alt_baro ?? 0) < 100,
-          velocity: ac.gs ?? null,
-          true_track: ac.track ?? null,
-          vertical_rate: ac.baro_rate ?? null,
-          sensors: null,
-          geo_altitude: ac.alt_geom ?? null,
-          squawk: ac.squawk ?? null,
-          spi: false,
-          position_source: 0,
-          category: null,
-          is_military: true,
-          aircraft_type: ac.t ?? null,
-          registration: ac.r ?? null,
-        }));
-
-      return militaryFlights;
-    } catch (error) {
-      console.error("Error fetching from ADSB.lol API:", error);
-      // Don't throw - just return empty array if military data fails
-      return [];
-    }
+    console.warn("getMilitaryFlights is deprecated - military flights are included in getFlights");
+    return [];
   }),
 
   getWeather: publicProcedure

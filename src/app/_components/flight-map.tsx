@@ -819,12 +819,8 @@ function FlightMarkers({
   onFlightSelect: (flight: SelectedFlight) => void;
   onModelSelect: (modelName: string, typeCode: string) => void;
 }) {
-  const { data: civilianFlights, refetch: refetchCivilian } = api.flights.getFlights.useQuery(bounds, {
-    refetchInterval: enabled ? env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL : false,
-    enabled,
-  });
-
-  const { data: militaryFlights, refetch: refetchMilitary } = api.flights.getMilitaryFlights.useQuery(undefined, {
+  // Fetch all flights (civilian + military) in one API call
+  const { data: allFlights, refetch } = api.flights.getFlights.useQuery(bounds, {
     refetchInterval: enabled ? env.NEXT_PUBLIC_FLIGHTS_REFETCH_INTERVAL : false,
     enabled,
   });
@@ -832,32 +828,14 @@ function FlightMarkers({
   // Trigger immediate refetch when enabled changes to true
   useEffect(() => {
     if (enabled) {
-      void refetchCivilian();
-      void refetchMilitary();
+      void refetch();
     }
-  }, [enabled, refetchCivilian, refetchMilitary]);
+  }, [enabled, refetch]);
 
   // Don't render markers if not enabled
   if (!enabled) return null;
 
-  // Combine and deduplicate flights
-  // Prefer military data from ADSB.lol over OpenSky data for the same aircraft
-  type Flight = NonNullable<typeof civilianFlights>[number];
-  const flightMap = new Map<string, Flight>();
-
-  // Add civilian flights first
-  (civilianFlights ?? []).forEach((flight) => {
-    flightMap.set(flight.icao24, flight);
-  });
-
-  // Add military flights, overwriting any duplicates from civilian data
-  (militaryFlights ?? []).forEach((flight) => {
-    flightMap.set(flight.icao24, flight);
-  });
-
-  const allFlights = Array.from(flightMap.values());
-
-  if (allFlights.length === 0) return null;
+  if (!allFlights || allFlights.length === 0) return null;
 
   return (
     <>
