@@ -1,30 +1,10 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { env } from "~/env";
 
 // Collection ID for airlines
 const AIRLINES_COLLECTION_ID = "OwnBC7jAu8wdPC0vyQz7";
 
-// Cache for articles
-let articlesCache: Array<{
-  id: string;
-  title: string;
-  snippet?: string;
-  content?: string;
-  tags?: string[];
-  publishedDate?: string;
-  metadata?: { slug?: string; [key: string]: unknown };
-}> | null = null;
-let cacheTimestamp = 0;
-
 async function fetchAllArticles() {
-  const now = Date.now();
-
-  // Return cached articles if still fresh
-  if (articlesCache && (now - cacheTimestamp) < env.ARTICLES_CACHE_DURATION) {
-    return articlesCache;
-  }
-
   const token = process.env.NEXT_PUBLIC_PCC_TOKEN;
 
   if (!token) {
@@ -67,7 +47,7 @@ async function fetchAllArticles() {
 
     if (!response.ok) {
       console.error(`Failed to fetch articles: ${response.status} ${response.statusText}`);
-      return articlesCache ?? [];
+      return [];
     }
 
     const result = await response.json() as {
@@ -89,19 +69,17 @@ async function fetchAllArticles() {
     const articles = result.data?.articlesv3?.articles ?? [];
 
     // Map resolvedContent to content for consistency
-    articlesCache = articles.map(article => ({
+    const mappedArticles = articles.map(article => ({
       ...article,
       content: article.resolvedContent,
     }));
 
-    cacheTimestamp = now;
+    console.log(`Fetched ${mappedArticles.length} articles from airlines collection`);
 
-    console.log(`Cached ${articlesCache.length} articles from airlines collection`);
-
-    return articlesCache;
+    return mappedArticles;
   } catch (error) {
     console.error("Error fetching articles:", error);
-    return articlesCache ?? [];
+    return [];
   }
 }
 

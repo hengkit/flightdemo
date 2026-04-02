@@ -1,0 +1,11 @@
+<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Airplane body -->
+  <path d="M16 3 L16 22" stroke="#0033a0" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Wings (swept back) -->
+  <path d="M5 15 L16 13 L27 15" stroke="#0033a0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Tail wings (smaller) -->
+  <path d="M11 21 L16 21.5 L21 21" stroke="#0033a0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Wing tips -->
+  <circle cx="5" cy="15" r="1.5" fill="#0033a0"/>
+  <circle cx="27" cy="15" r="1.5" fill="#0033a0"/>
+</svg>
