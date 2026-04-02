@@ -4,29 +4,65 @@ export const healthRouter = createTRPCRouter({
   check: publicProcedure.query(async () => {
     const results = {
       timestamp: new Date().toISOString(),
+      environment: {
+        hasOpenSkyCredentials: !!(process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET),
+      },
       services: {} as Record<string, { status: string; responseTime?: number; error?: string }>,
     };
 
-    // Test OpenSky API
+    // Test OpenSky OAuth Token (if credentials available)
+    if (process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET) {
+      try {
+        const start = Date.now();
+        const tokenResponse = await fetch("https://opensky-network.org/api/oauth/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: process.env.OPENSKY_CLIENT_ID,
+            client_secret: process.env.OPENSKY_CLIENT_SECRET,
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+        const tokenTime = Date.now() - start;
+
+        if (tokenResponse.ok) {
+          results.services.openskyOAuth = { status: "ok", responseTime: tokenTime };
+        } else {
+          results.services.openskyOAuth = {
+            status: "error",
+            responseTime: tokenTime,
+            error: `HTTP ${tokenResponse.status}`
+          };
+        }
+      } catch (error) {
+        results.services.openskyOAuth = {
+          status: "error",
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+
+    // Test OpenSky API (anonymous)
     try {
       const start = Date.now();
       const response = await fetch(
         "https://opensky-network.org/api/states/all?lamin=37&lomin=-123&lamax=38&lomax=-122",
-        { signal: AbortSignal.timeout(5000) }
+        { signal: AbortSignal.timeout(10000) } // Increased to 10s
       );
       const responseTime = Date.now() - start;
 
       if (response.ok) {
-        results.services.opensky = { status: "ok", responseTime };
+        results.services.openskyAnonymous = { status: "ok", responseTime };
       } else {
-        results.services.opensky = {
+        results.services.openskyAnonymous = {
           status: "error",
           responseTime,
           error: `HTTP ${response.status}`
         };
       }
     } catch (error) {
-      results.services.opensky = {
+      results.services.openskyAnonymous = {
         status: "error",
         error: error instanceof Error ? error.message : String(error)
       };
