@@ -1098,20 +1098,22 @@ function MapBoundsTracker({
     };
   }, [map]);
 
-  // Only enable API calls if zoom level is greater than 8
-  const shouldFetchData = zoom > 8;
+  // Different zoom limits for different modes
+  const shouldFetchFlights = zoom > 8;
+  const shouldFetchShips = zoom > 8;
+  const shouldFetchSatellites = zoom > 4;
 
   return (
     <>
-      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes" && shouldFetchData} onFlightSelect={onFlightSelect} onModelSelect={onModelSelect} />
-      <ShipMarkers bounds={bounds} enabled={viewMode === "ships" && shouldFetchData} />
-      <SatelliteMarkers latitude={center.latitude} longitude={center.longitude} enabled={viewMode === "space" && shouldFetchData} />
+      <FlightMarkers bounds={bounds} enabled={viewMode === "airplanes" && shouldFetchFlights} onFlightSelect={onFlightSelect} onModelSelect={onModelSelect} />
+      <ShipMarkers bounds={bounds} enabled={viewMode === "ships" && shouldFetchShips} />
+      <SatelliteMarkers latitude={center.latitude} longitude={center.longitude} enabled={viewMode === "space" && shouldFetchSatellites} />
     </>
   );
 }
 
 // Component to display zoom level notice
-function ZoomNotice() {
+function ZoomNotice({ viewMode }: { viewMode: "airplanes" | "ships" | "space" }) {
   const map = useMap();
   const [zoom, setZoom] = useState(map.getZoom());
 
@@ -1126,7 +1128,10 @@ function ZoomNotice() {
     };
   }, [map]);
 
-  if (zoom > 8) return null;
+  // Different zoom requirements for different modes
+  const zoomRequired = viewMode === "space" ? 4 : 8;
+
+  if (zoom > zoomRequired) return null;
 
   return (
     <div
@@ -1605,7 +1610,7 @@ export function FlightMap({
       <ZoomControl position="topleft" />
       <ViewModeControl viewMode={viewMode} onViewModeChange={setViewMode} />
       <LocationControl />
-      <ZoomNotice />
+      <ZoomNotice viewMode={viewMode} />
       <MapBoundsTracker
         viewMode={viewMode}
         onFlightSelect={(flight) => {

@@ -22,13 +22,62 @@ const shipCache = new Map<number, ShipPosition>();
 // WebSocket connection management
 let ws: WebSocket | null = null;
 let reconnectTimeout: NodeJS.Timeout | null = null;
+let idleCheckInterval: NodeJS.Timeout | null = null;
+let isInitialized = false;
+let lastQueryTime = 0;
 const RECONNECT_DELAY = 5000; // 5 seconds
+const IDLE_TIMEOUT = 300000; // 5 minutes - close WebSocket if no queries
+const IDLE_CHECK_INTERVAL = 60000; // Check every minute
 let lastSubscriptionUpdate = 0;
 const MIN_SUBSCRIPTION_INTERVAL = 60000; // Minimum 1 minute between updates
 
 // Get API key from environment
 function getAISStreamAPIKey(): string | null {
   return process.env.AISSTREAM_API_KEY || null;
+}
+
+// Close WebSocket and cleanup
+function closeConnection() {
+  console.log("Closing AISStream WebSocket due to inactivity");
+
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
+
+  if (idleCheckInterval) {
+    clearInterval(idleCheckInterval);
+    idleCheckInterval = null;
+  }
+
+  // Reset initialization flag so it can reconnect later
+  isInitialized = false;
+
+  // Clear the cache when disconnecting
+  shipCache.clear();
+}
+
+// Check for idle connection and close if needed
+function startIdleCheck() {
+  // Clear existing interval if any
+  if (idleCheckInterval) {
+    clearInterval(idleCheckInterval);
+  }
+
+  idleCheckInterval = setInterval(() => {
+    const now = Date.now();
+    const idleTime = now - lastQueryTime;
+
+    if (idleTime > IDLE_TIMEOUT && ws) {
+      console.log(`No queries for ${Math.round(idleTime / 1000)}s, closing WebSocket`);
+      closeConnection();
+    }
+  }, IDLE_CHECK_INTERVAL);
 }
 
 // Connect to AISStream WebSocket
@@ -65,6 +114,9 @@ function connectToAISStream(bounds: { lamin: number; lomin: number; lamax: numbe
 
     ws?.send(JSON.stringify(subscriptionMessage));
     console.log("Sent AISStream subscription for bounds:", bounds);
+
+    // Start monitoring for idle connections
+    startIdleCheck();
   });
 
   ws.on("ping", () => {
@@ -194,8 +246,6 @@ let currentBounds = {
   lomax: -121.5,
 };
 
-let isInitialized = false;
-
 // Lazy initialization - only connect when first query is made
 function ensureConnection() {
   if (!isInitialized && getAISStreamAPIKey()) {
@@ -244,6 +294,9 @@ export const shipsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ input }) => {
+      // Track query activity for idle detection
+      lastQueryTime = Date.now();
+
       // Ensure connection is established (lazy initialization)
       ensureConnection();
 
